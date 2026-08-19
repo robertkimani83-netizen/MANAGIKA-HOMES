@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 
 function currentPeriod() {
   const d = new Date();
+
   const names = [
     "January",
     "February",
@@ -31,6 +32,7 @@ export default function LandlordDashboard() {
   const [unitCount, setUnitCount] = useState(0);
   const [tenantCount, setTenantCount] = useState(0);
   const [outstanding, setOutstanding] = useState(0);
+  const [maintenanceCount, setMaintenanceCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,36 +50,61 @@ export default function LandlordDashboard() {
 
       const landlordId = user.id;
 
-      // 1. PROPERTIES BELONGING TO THIS LANDLORD
-      const { data: landlordProperties } = await supabase
-        .from("properties")
-        .select("id")
-        .eq("landlord_id", landlordId);
+      // =====================================================
+      // 1. PROPERTIES
+      // =====================================================
+
+      const { data: landlordProperties, error: propertyError } =
+        await supabase
+          .from("properties")
+          .select("id")
+          .eq("landlord_id", landlordId);
+
+      if (propertyError) {
+        console.error("Properties error:", propertyError);
+      }
 
       const propertyIds = (landlordProperties || []).map(
-        (p) => p.id
+        (property) => property.id
       );
 
       setPropertyCount(propertyIds.length);
 
-      let unitIds: string[] = [];
+      // =====================================================
+      // 2. UNITS
+      // =====================================================
 
-      // 2. UNITS BELONGING TO THIS LANDLORD
+      let units: {
+        id: string;
+        base_rent: number;
+        status: string;
+      }[] = [];
+
       if (propertyIds.length > 0) {
-        const { data: landlordUnits } = await supabase
-          .from("units")
-          .select("id, base_rent, status")
-          .in("property_id", propertyIds);
+        const { data: landlordUnits, error: unitError } =
+          await supabase
+            .from("units")
+            .select("id, base_rent, status")
+            .in("property_id", propertyIds);
 
-        const units = landlordUnits || [];
+        if (unitError) {
+          console.error("Units error:", unitError);
+        }
 
-        unitIds = units.map((u) => u.id);
+        units = landlordUnits || [];
+      }
 
-        setUnitCount(units.length);
+      const unitIds = units.map((unit) => unit.id);
 
-        // 3. ACTIVE TENANTS BELONGING TO THIS LANDLORD
-        if (unitIds.length > 0) {
-          const { count: tenants } = await supabase
+      setUnitCount(units.length);
+
+      // =====================================================
+      // 3. TENANTS
+      // =====================================================
+
+      if (unitIds.length > 0) {
+        const { count: tenants, error: tenantError } =
+          await supabase
             .from("tenants")
             .select("id", {
               count: "exact",
@@ -86,62 +113,100 @@ export default function LandlordDashboard() {
             .eq("status", "active")
             .in("unit_id", unitIds);
 
-          setTenantCount(tenants || 0);
-        } else {
-          setTenantCount(0);
+        if (tenantError) {
+          console.error("Tenants error:", tenantError);
         }
 
-        // EXPECTED RENT
-        const rentExpected = units
-          .filter((u) => u.status === "occupied")
-          .reduce(
-            (sum, u) => sum + (Number(u.base_rent) || 0),
-            0
-          );
+        setTenantCount(tenants || 0);
+      } else {
+        setTenantCount(0);
+      }
 
-        // PAYMENTS
-        let collected = 0;
+      // =====================================================
+      // 4. EXPECTED RENT
+      // =====================================================
 
-        if (unitIds.length > 0) {
-          const { data: landlordInvoices } = await supabase
+      const rentExpected = units
+        .filter((unit) => unit.status === "occupied")
+        .reduce(
+          (sum, unit) => sum + (Number(unit.base_rent) || 0),
+          0
+        );
+
+      // =====================================================
+      // 5. PAYMENTS
+      // =====================================================
+
+      let collected = 0;
+
+      if (unitIds.length > 0) {
+        const { data: landlordInvoices, error: invoiceError } =
+          await supabase
             .from("invoices")
             .select("id, billing_period")
             .in("unit_id", unitIds);
 
-          const invoiceIds = (landlordInvoices || []).map(
-            (invoice) => invoice.id
-          );
+        if (invoiceError) {
+          console.error("Invoices error:", invoiceError);
+        }
 
-          const period = currentPeriod();
+        const period = currentPeriod();
 
-          const currentInvoiceIds = (landlordInvoices || [])
-            .filter(
-              (invoice) =>
-                invoice.billing_period === period
-            )
-            .map((invoice) => invoice.id);
+        const currentInvoiceIds = (landlordInvoices || [])
+          .filter(
+            (invoice) =>
+              invoice.billing_period === period
+          )
+          .map((invoice) => invoice.id);
 
-          if (currentInvoiceIds.length > 0) {
-            const { data: payments } = await supabase
+        if (currentInvoiceIds.length > 0) {
+          const { data: payments, error: paymentError } =
+            await supabase
               .from("payments")
               .select("amount_paid")
               .in("invoice_id", currentInvoiceIds);
 
-            collected = (payments || []).reduce(
-              (sum, payment) =>
-                sum + (Number(payment.amount_paid) || 0),
-              0
-            );
+          if (paymentError) {
+            console.error("Payments error:", paymentError);
           }
+
+          collected = (payments || []).reduce(
+            (sum, payment) =>
+              sum + (Number(payment.amount_paid) || 0),
+            0
+          );
+        }
+      }
+
+      setOutstanding(
+        Math.max(rentExpected - collected, 0)
+      );
+
+      // =====================================================
+      // 6. MAINTENANCE REQUESTS
+      // =====================================================
+
+      if (unitIds.length > 0) {
+        const { count: maintenance, error: maintenanceError } =
+          await supabase
+            .from("maintenance_requests")
+            .select("id", {
+              count: "exact",
+              head: true,
+            })
+            .in("unit_id", unitIds)
+            .eq("status", "submitted");
+
+        if (maintenanceError) {
+          console.error(
+            "Maintenance error:",
+            maintenanceError
+          );
         }
 
-        setOutstanding(
-          Math.max(rentExpected - collected, 0)
-        );
+        setMaintenanceCount(maintenance || 0);
       } else {
-        setUnitCount(0);
-        setTenantCount(0);
-        setOutstanding(0);
+        setMaintenanceCount(0);
       }
 
       setLoading(false);
@@ -149,6 +214,10 @@ export default function LandlordDashboard() {
 
     loadStats();
   }, [router]);
+
+  // ===========================================================
+  // DASHBOARD FLOW
+  // ===========================================================
 
   const steps = [
     {
@@ -161,6 +230,7 @@ export default function LandlordDashboard() {
       label: "Properties",
       button: "Manage Properties",
       link: "/properties",
+      money: false,
     },
     {
       number: "②",
@@ -172,6 +242,7 @@ export default function LandlordDashboard() {
       label: "Total Units",
       button: "Manage Units",
       link: "/units",
+      money: false,
     },
     {
       number: "③",
@@ -183,6 +254,7 @@ export default function LandlordDashboard() {
       label: "Active Tenants",
       button: "Manage Tenants",
       link: "/tenants",
+      money: false,
     },
     {
       number: "④",
@@ -194,6 +266,7 @@ export default function LandlordDashboard() {
       label: "Outstanding Rent",
       button: "View Payments",
       link: "/payments",
+      money: true,
     },
     {
       number: "⑤",
@@ -201,21 +274,27 @@ export default function LandlordDashboard() {
       title: "Maintenance",
       description:
         "Record and track maintenance requests.",
-      count: null,
-      label: "Maintenance",
+      count: maintenanceCount,
+      label: "Open Requests",
       button: "View Maintenance",
       link: "/maintenance",
+      money: false,
     },
   ];
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
+
+      {/* HEADER */}
+
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between px-6 py-5">
+
           <div>
             <h1 className="text-xl font-bold">
               MANAGIKA HOMES
             </h1>
+
             <p className="text-sm text-slate-500">
               Landlord Dashboard
             </p>
@@ -227,11 +306,16 @@ export default function LandlordDashboard() {
           >
             Sign Out
           </a>
+
         </div>
       </header>
 
+      {/* MAIN */}
+
       <div className="mx-auto max-w-[1500px] px-6 py-8">
+
         <div className="mb-8">
+
           <h2 className="text-3xl font-bold">
             Dashboard
           </h2>
@@ -240,17 +324,28 @@ export default function LandlordDashboard() {
             Follow the steps from left to right to manage
             your property.
           </p>
+
         </div>
 
-        {/* MAIN STEP FLOW */}
+        {/* =====================================================
+            MAIN PROPERTY MANAGEMENT FLOW
+        ===================================================== */}
+
         <section className="flex items-stretch gap-3 overflow-x-auto pb-4">
+
           {steps.map((step, index) => (
+
             <div
               key={step.number}
               className="flex min-w-[245px] flex-1 items-center"
             >
+
               <div className="w-full rounded-2xl border bg-white p-6 shadow-sm">
+
+                {/* NUMBER + ICON */}
+
                 <div className="flex items-center justify-between">
+
                   <span className="text-3xl font-bold">
                     {step.number}
                   </span>
@@ -258,37 +353,44 @@ export default function LandlordDashboard() {
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-2xl">
                     {step.icon}
                   </div>
+
                 </div>
+
+                {/* TITLE */}
 
                 <h3 className="mt-5 text-xl font-bold">
                   {step.title}
                 </h3>
 
+                {/* DESCRIPTION */}
+
                 <p className="mt-2 min-h-[48px] text-sm text-slate-600">
                   {step.description}
                 </p>
 
+                {/* NUMBER */}
+
                 <div className="mt-5 border-t pt-4">
+
                   <p className="text-sm text-slate-500">
                     {step.label}
                   </p>
 
-                  {step.count !== null ? (
-                    <p className="mt-1 text-2xl font-bold">
-                      {loading
-                        ? "—"
-                        : step.title === "Payments"
-                        ? `KSh ${Number(
-                            step.count
-                          ).toLocaleString()}`
-                        : step.count}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-2xl font-bold">
-                      —
-                    </p>
-                  )}
+                  <p className="mt-1 text-2xl font-bold">
+
+                    {loading
+                      ? "—"
+                      : step.money
+                      ? `KSh ${Number(
+                          step.count
+                        ).toLocaleString()}`
+                      : step.count}
+
+                  </p>
+
                 </div>
+
+                {/* BUTTON */}
 
                 <a
                   href={step.link}
@@ -296,24 +398,37 @@ export default function LandlordDashboard() {
                 >
                   {step.button}
                 </a>
+
               </div>
 
+              {/* ARROW */}
+
               {index < steps.length - 1 && (
+
                 <div className="px-1 text-3xl font-bold text-slate-400">
                   →
                 </div>
+
               )}
+
             </div>
+
           ))}
+
         </section>
 
-        {/* SETUP ORDER */}
+        {/* =====================================================
+            SETUP ORDER
+        ===================================================== */}
+
         <section className="mt-8 rounded-2xl border bg-white p-7 shadow-sm">
+
           <h3 className="text-xl font-bold">
             Property Setup Order
           </h3>
 
           <div className="mt-6 rounded-xl bg-slate-50 p-5 text-center">
+
             <p className="text-lg font-bold">
               ① Properties → ② Units → ③ Tenants → ④ Payments → ⑤ Maintenance
             </p>
@@ -321,13 +436,19 @@ export default function LandlordDashboard() {
             <p className="mt-2 text-sm text-slate-500">
               Follow this order when setting up a new property.
             </p>
+
           </div>
+
         </section>
+
       </div>
+
+      {/* FOOTER */}
 
       <footer className="mt-10 border-t bg-white px-6 py-6 text-center text-sm text-slate-500">
         © 2026 Managika Homes. Property management made simple.
       </footer>
+
     </main>
   );
 }
