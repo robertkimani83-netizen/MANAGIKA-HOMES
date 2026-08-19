@@ -1,136 +1,236 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+const LANDLORD_ID = "25577765-142e-49b4-88c8-925678e13d3f";
+
+type Property = {
+id: string;
+property_name: string;
+};
+
+type Unit = {
+id: string;
+unit_number: string;
+base_rent: number;
+garbage_fee: number;
+status: string;
+property_id: string;
+properties: { property_name: string } | null;
+};
+
 export default function UnitsPage() {
-  return (
-    <main className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              MANAGIKA HOMES
-            </h1>
-            <p className="text-sm text-gray-500">
-              Property Management Made Simple
-            </p>
-          </div>
+const [units, setUnits] = useState<Unit[]>([]);
+const [properties, setProperties] = useState<Property[]>([]);
+const [loading, setLoading] = useState(true);
+const [showForm, setShowForm] = useState(false);
 
-          <a
-            href="/"
-            className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700"
-          >
-            Dashboard
-          </a>
+const [propertyId, setPropertyId] = useState("");
+const [unitNumber, setUnitNumber] = useState("");
+const [baseRent, setBaseRent] = useState("");
+const [garbageFee, setGarbageFee] = useState("");
+
+async function loadProperties() {
+const { data } = await supabase
+.from("properties")
+.select("id, property_name")
+.eq("landlord_id", LANDLORD_ID)
+.order("property_name", { ascending: true });
+if (data) {
+setProperties(data);
+if (data.length > 0 && !propertyId) setPropertyId(data[0].id);
+}
+}
+
+async function loadUnits() {
+setLoading(true);
+const { data, error } = await supabase
+.from("units")
+.select("id, unit_number, base_rent, garbage_fee, status, property_id, properties(property_name)")
+.order("created_at", { ascending: false });
+if (!error && data) {
+setUnits(data as unknown as Unit[]);
+}
+setLoading(false);
+}
+
+useEffect(() => {
+loadProperties();
+loadUnits();
+}, []);
+
+async function addUnit() {
+if (!propertyId) {
+alert("Please add a property first, then select it here.");
+return;
+}
+if (!unitNumber.trim()) {
+alert("Please enter the unit number.");
+return;
+}
+const rent = Number(baseRent);
+if (!Number.isFinite(rent) || rent <= 0) {
+alert("Please enter a valid monthly rent.");
+return;
+}
+const garbage = Number(garbageFee) || 0;
+
+const { error } = await supabase.from("units").insert({
+  property_id: propertyId,
+  unit_number: unitNumber.trim(),
+  base_rent: rent,
+  garbage_fee: garbage,
+});
+
+if (error) {
+  alert("Error saving unit: " + error.message);
+  return;
+}
+
+setUnitNumber("");
+setBaseRent("");
+setGarbageFee("");
+setShowForm(false);
+loadUnits();
+
+}
+
+async function deleteUnit(id: string) {
+const confirmed = window.confirm("Are you sure you want to delete this unit?");
+if (!confirmed) return;
+const { error } = await supabase.from("units").delete().eq("id", id);
+if (error) {
+alert("Error deleting unit: " + error.message);
+return;
+}
+loadUnits();
+}
+
+const totalUnits = units.length;
+const occupied = units.filter((u) => u.status === "occupied").length;
+const vacant = units.filter((u) => u.status === "vacant").length;
+const totalRent = units.reduce((sum, u) => sum + (Number(u.base_rent) || 0), 0);
+
+return (
+<main className="min-h-screen bg-gray-100">
+<header className="bg-white border-b">
+<div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+<div>
+<h1 className="text-2xl font-bold text-gray-900">MANAGIKA HOMES</h1>
+<p className="text-sm text-gray-500">Property Management Made Simple</p>
+</div>
+<a href="/landlord/dashboard" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">Dashboard</a>
+</div>
+</header>
+
+  <section className="max-w-7xl mx-auto px-6 py-8">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+      <div>
+        <h2 className="text-3xl font-bold text-gray-900">Units</h2>
+        <p className="text-gray-500 mt-1">Manage rental units, tenants and occupancy.</p>
+      </div>
+      <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-black text-white font-medium">+ Add Unit</button>
+    </div>
+
+    {showForm && (
+      <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
+        <h3 className="mb-5 text-xl font-bold text-gray-900">Add New Unit</h3>
+        {properties.length === 0 ? (
+          <p className="text-gray-500">Add a property first under the Properties page before adding units.</p>
+        ) : (
+          <div className="grid gap-5 md:grid-cols-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Property</label>
+              <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black">
+                {properties.map((p) => (
+                  <option key={p.id} value={p.id}>{p.property_name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Unit Number</label>
+              <input type="text" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="e.g. A12" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Monthly Rent (KSh)</label>
+              <input type="number" min="0" value={baseRent} onChange={(e) => setBaseRent(e.target.value)} placeholder="e.g. 15000" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Garbage Fee (KSh)</label>
+              <input type="number" min="0" value={garbageFee} onChange={(e) => setGarbageFee(e.target.value)} placeholder="e.g. 200" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            </div>
+          </div>
+        )}
+        <div className="mt-6 flex gap-3">
+          <button onClick={addUnit} className="rounded-lg bg-black px-5 py-3 font-medium text-white hover:bg-gray-800">Save Unit</button>
+          <button onClick={() => setShowForm(false)} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
         </div>
-      </header>
+      </div>
+    )}
 
-      {/* Content */}
-      <section className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-          <div>
-            <h2 className="text-3xl font-bold text-gray-900">
-              Units
-            </h2>
-            <p className="text-gray-500 mt-1">
-              Manage rental units, tenants and occupancy.
-            </p>
-          </div>
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
+      <div className="bg-white rounded-xl p-6 border shadow-sm">
+        <p className="text-sm text-gray-500">Total Units</p>
+        <p className="text-3xl font-bold mt-2">{totalUnits}</p>
+      </div>
+      <div className="bg-white rounded-xl p-6 border shadow-sm">
+        <p className="text-sm text-gray-500">Occupied</p>
+        <p className="text-3xl font-bold mt-2">{occupied}</p>
+      </div>
+      <div className="bg-white rounded-xl p-6 border shadow-sm">
+        <p className="text-sm text-gray-500">Vacant</p>
+        <p className="text-3xl font-bold mt-2">{vacant}</p>
+      </div>
+      <div className="bg-white rounded-xl p-6 border shadow-sm">
+        <p className="text-sm text-gray-500">Total Monthly Rent</p>
+        <p className="text-3xl font-bold mt-2">KSh {totalRent.toLocaleString()}</p>
+      </div>
+    </div>
 
-          <button className="px-5 py-3 rounded-lg bg-black text-white font-medium">
-            + Add Unit
-          </button>
-        </div>
-
-        {/* Unit summary */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-          <div className="bg-white rounded-xl p-6 border shadow-sm">
-            <p className="text-sm text-gray-500">Total Units</p>
-            <p className="text-3xl font-bold mt-2">0</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border shadow-sm">
-            <p className="text-sm text-gray-500">Occupied</p>
-            <p className="text-3xl font-bold mt-2">0</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border shadow-sm">
-            <p className="text-sm text-gray-500">Vacant</p>
-            <p className="text-3xl font-bold mt-2">0</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border shadow-sm">
-            <p className="text-sm text-gray-500">Monthly Rent</p>
-            <p className="text-3xl font-bold mt-2">KSh 0</p>
-          </div>
-        </div>
-
-        {/* Empty state */}
-        <div className="bg-white rounded-xl border shadow-sm p-10 text-center">
-          <div className="text-5xl mb-5">🚪</div>
-
-          <h3 className="text-2xl font-semibold text-gray-900">
-            No units yet
-          </h3>
-
-          <p className="text-gray-500 max-w-md mx-auto mt-2">
-            Add units to your properties so you can track rent,
-            tenants and occupancy.
-          </p>
-
-          <button className="mt-6 px-5 py-3 rounded-lg bg-black text-white font-medium">
-            + Add Your First Unit
-          </button>
-        </div>
-
-        {/* Unit information */}
-        <div className="mt-8 bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-6 py-5 border-b">
-            <h3 className="text-xl font-semibold">
-              Unit Information
-            </h3>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Unit
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Property
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Tenant
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Monthly Rent
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-6 py-10 text-center text-gray-500"
-                  >
-                    No units have been added yet.
+    <div className="mt-8 bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div className="px-6 py-5 border-b">
+        <h3 className="text-xl font-semibold">Unit Information</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Unit</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Property</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Monthly Rent</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Status</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5} className="px-6 py-10 text-center text-gray-500">Loading units...</td></tr>
+            ) : units.length === 0 ? (
+              <tr><td colSpan={5} className="px-6 py-10 text-center text-gray-500">No units have been added yet.</td></tr>
+            ) : (
+              units.map((unit) => (
+                <tr key={unit.id} className="border-t">
+                  <td className="px-6 py-4">{unit.unit_number}</td>
+                  <td className="px-6 py-4">{unit.properties?.property_name || "—"}</td>
+                  <td className="px-6 py-4">KSh {Number(unit.base_rent).toLocaleString()}</td>
+                  <td className="px-6 py-4 capitalize">{unit.status}</td>
+                  <td className="px-6 py-4">
+                    <button onClick={() => deleteUnit(unit.id)} className="text-sm font-medium text-red-600 hover:underline">Delete</button>
                   </td>
                 </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
-      {/* Footer */}
-      <footer className="border-t bg-white mt-10">
-        <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-gray-500">
-          © 2026 Managika Homes. Property management made simple.
-        </div>
-      </footer>
-    </main>
-  );
+  <footer className="border-t bg-white mt-10">
+    <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-gray-500">© 2026 Managika Homes. Property management made simple.</div>
+  </footer>
+</main>
+
+);
 }
