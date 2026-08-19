@@ -114,6 +114,13 @@ return (
         <p className="mt-2 max-w-md text-slate-600">Add rental units to your properties and track occupancy.</p>
         <a href="/units" className="mt-6 inline-block rounded-lg border border-slate-300 bg-white px-5 py-3 font-semibold hover:bg-slate-50">Manage Units</a>
       </div>
+
+      <div className="rounded-2xl border bg-white p-7 shadow-sm">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-2xl">🔧</div>
+        <h3 className="text-xl font-bold">Maintenance</h3>
+        <p className="mt-2 max-w-md text-slate-600">Track maintenance requests and keep your properties in good condition.</p>
+        <a href="/maintenance" className="mt-6 inline-block rounded-lg border border-slate-300 bg-white px-5 py-3 font-semibold hover:bg-slate-50">View Maintenance</a>
+      </div>
     </section>
   </div>
 
