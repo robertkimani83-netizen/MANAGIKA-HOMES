@@ -1,9 +1,8 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-
-const LANDLORD_ID = "25577765-142e-49b4-88c8-925678e13d3f";
 
 type Property = {
 id: string;
@@ -12,38 +11,76 @@ location: string;
 };
 
 export default function PropertiesPage() {
+const router = useRouter();
+const [landlordId, setLandlordId] = useState<string | null>(null);
 const [properties, setProperties] = useState<Property[]>([]);
 const [loading, setLoading] = useState(true);
 const [showForm, setShowForm] = useState(false);
 const [name, setName] = useState("");
 const [location, setLocation] = useState("");
 
-async function loadProperties() {
+useEffect(() => {
+async function init() {
+const { data } = await supabase.auth.getUser();
+if (!data.user) {
+router.push("/landlord/login");
+return;
+}
+setLandlordId(data.user.id);
+}
+init();
+}, []);
+
+async function loadProperties(id: string) {
 setLoading(true);
-const { data, error } = await supabase.from("properties").select("id, property_name, location").eq("landlord_id", LANDLORD_ID).order("created_at", { ascending: false });
-if (!error && data) { setProperties(data); }
+const { data, error } = await supabase
+.from("properties")
+.select("id, property_name, location")
+.eq("landlord_id", id)
+.order("created_at", { ascending: false });
+if (!error && data) setProperties(data);
 setLoading(false);
 }
 
-useEffect(() => { loadProperties(); }, []);
+useEffect(() => {
+if (landlordId) loadProperties(landlordId);
+}, [landlordId]);
 
 async function addProperty() {
-if (!name.trim()) { alert("Please enter the property name."); return; }
-if (!location.trim()) { alert("Please enter the property location."); return; }
-const { error } = await supabase.from("properties").insert({ landlord_id: LANDLORD_ID, property_name: name.trim(), location: location.trim() });
-if (error) { alert("Error saving property: " + error.message); return; }
+if (!landlordId) return;
+if (!name.trim()) {
+alert("Please enter the property name.");
+return;
+}
+if (!location.trim()) {
+alert("Please enter the property location.");
+return;
+}
+const { error } = await supabase.from("properties").insert({
+landlord_id: landlordId,
+property_name: name.trim(),
+location: location.trim(),
+});
+if (error) {
+alert("Error saving property: " + error.message);
+return;
+}
 setName("");
 setLocation("");
 setShowForm(false);
-loadProperties();
+loadProperties(landlordId);
 }
 
 async function deleteProperty(id: string) {
+if (!landlordId) return;
 const confirmed = window.confirm("Are you sure you want to delete this property?");
 if (!confirmed) return;
 const { error } = await supabase.from("properties").delete().eq("id", id);
-if (error) { alert("Error deleting property: " + error.message); return; }
-loadProperties();
+if (error) {
+alert("Error deleting property: " + error.message);
+return;
+}
+loadProperties(landlordId);
 }
 
 const totalProperties = properties.length;
