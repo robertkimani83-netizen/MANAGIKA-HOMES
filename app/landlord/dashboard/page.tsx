@@ -6,7 +6,6 @@ import { supabase } from "@/lib/supabase";
 
 function currentPeriod() {
   const d = new Date();
-
   const names = [
     "January",
     "February",
@@ -49,13 +48,7 @@ export default function LandlordDashboard() {
 
       const landlordId = user.id;
 
-      // PROPERTIES
-      const { count: properties } = await supabase
-        .from("properties")
-        .select("id", { count: "exact", head: true })
-        .eq("landlord_id", landlordId);
-
-      // GET THIS LANDLORD'S PROPERTY IDS
+      // 1. PROPERTIES BELONGING TO THIS LANDLORD
       const { data: landlordProperties } = await supabase
         .from("properties")
         .select("id")
@@ -65,34 +58,24 @@ export default function LandlordDashboard() {
         (p) => p.id
       );
 
-      // UNITS
-      let unitsWithRent: {
-        base_rent: number;
-        status: string;
-      }[] = [];
+      setPropertyCount(propertyIds.length);
 
-      if (propertyIds.length > 0) {
-        const { data: units } = await supabase
-          .from("units")
-          .select("base_rent, status")
-          .in("property_id", propertyIds);
+      let unitIds: string[] = [];
 
-        unitsWithRent = units || [];
-      }
-
-      // TENANTS
-      let tenantCountValue = 0;
-
+      // 2. UNITS BELONGING TO THIS LANDLORD
       if (propertyIds.length > 0) {
         const { data: landlordUnits } = await supabase
           .from("units")
-          .select("id")
+          .select("id, base_rent, status")
           .in("property_id", propertyIds);
 
-        const unitIds = (landlordUnits || []).map(
-          (u) => u.id
-        );
+        const units = landlordUnits || [];
 
+        unitIds = units.map((u) => u.id);
+
+        setUnitCount(units.length);
+
+        // 3. ACTIVE TENANTS BELONGING TO THIS LANDLORD
         if (unitIds.length > 0) {
           const { count: tenants } = await supabase
             .from("tenants")
@@ -103,71 +86,63 @@ export default function LandlordDashboard() {
             .eq("status", "active")
             .in("unit_id", unitIds);
 
-          tenantCountValue = tenants || 0;
+          setTenantCount(tenants || 0);
+        } else {
+          setTenantCount(0);
         }
-      }
 
-      // EXPECTED RENT
-      const rentExpected = unitsWithRent
-        .filter((u) => u.status === "occupied")
-        .reduce(
-          (sum, u) => sum + (Number(u.base_rent) || 0),
-          0
-        );
-
-      // PAYMENTS
-      let collected = 0;
-
-      if (propertyIds.length > 0) {
-        const { data: landlordUnits } = await supabase
-          .from("units")
-          .select("id")
-          .in("property_id", propertyIds);
-
-        const unitIds = (landlordUnits || []).map(
-          (u) => u.id
-        );
-
-        if (unitIds.length > 0) {
-          const { data: invoices } = await supabase
-            .from("invoices")
-            .select("id")
-            .in("unit_id", unitIds);
-
-          const invoiceIds = (invoices || []).map(
-            (i) => i.id
+        // EXPECTED RENT
+        const rentExpected = units
+          .filter((u) => u.status === "occupied")
+          .reduce(
+            (sum, u) => sum + (Number(u.base_rent) || 0),
+            0
           );
 
-          if (invoiceIds.length > 0) {
+        // PAYMENTS
+        let collected = 0;
+
+        if (unitIds.length > 0) {
+          const { data: landlordInvoices } = await supabase
+            .from("invoices")
+            .select("id, billing_period")
+            .in("unit_id", unitIds);
+
+          const invoiceIds = (landlordInvoices || []).map(
+            (invoice) => invoice.id
+          );
+
+          const period = currentPeriod();
+
+          const currentInvoiceIds = (landlordInvoices || [])
+            .filter(
+              (invoice) =>
+                invoice.billing_period === period
+            )
+            .map((invoice) => invoice.id);
+
+          if (currentInvoiceIds.length > 0) {
             const { data: payments } = await supabase
               .from("payments")
-              .select(
-                "amount_paid, invoices(billing_period)"
-              )
-              .in("invoice_id", invoiceIds);
+              .select("amount_paid")
+              .in("invoice_id", currentInvoiceIds);
 
-            const period = currentPeriod();
-
-            collected = (payments || [])
-              .filter(
-                (p: any) =>
-                  p.invoices?.billing_period === period
-              )
-              .reduce(
-                (sum: number, p: any) =>
-                  sum + (Number(p.amount_paid) || 0),
-                0
-              );
+            collected = (payments || []).reduce(
+              (sum, payment) =>
+                sum + (Number(payment.amount_paid) || 0),
+              0
+            );
           }
         }
-      }
 
-      setPropertyCount(properties || 0);
-      setUnitCount(unitsWithRent.length);
-      setTenantCount(tenantCountValue);
-      setOutstanding(
-        Math.max(rentExpected - collected, 0)
-      );
+        setOutstanding(
+          Math.max(rentExpected - collected, 0)
+        );
+      } else {
+        setUnitCount(0);
+        setTenantCount(0);
+        setOutstanding(0);
+      }
 
       setLoading(false);
     }
@@ -175,72 +150,68 @@ export default function LandlordDashboard() {
     loadStats();
   }, [router]);
 
-  const nextStep =
-    propertyCount === 0
-      ? 1
-      : unitCount === 0
-      ? 2
-      : tenantCount === 0
-      ? 3
-      : 4;
-
   const steps = [
     {
-      number: 1,
+      number: "①",
       icon: "🏠",
       title: "Properties",
       description:
-        "Create your building or apartment first.",
+        "Add and manage your buildings and apartments.",
+      count: propertyCount,
+      label: "Properties",
       button: "Manage Properties",
-      href: "/properties",
-      complete: propertyCount > 0,
+      link: "/properties",
     },
     {
-      number: 2,
+      number: "②",
       icon: "🚪",
       title: "Units",
       description:
-        "Add the rental units inside your property.",
+        "Add rental units inside your properties.",
+      count: unitCount,
+      label: "Total Units",
       button: "Manage Units",
-      href: "/units",
-      complete: unitCount > 0,
+      link: "/units",
     },
     {
-      number: 3,
+      number: "③",
       icon: "👥",
       title: "Tenants",
       description:
         "Add tenants and assign them to units.",
+      count: tenantCount,
+      label: "Active Tenants",
       button: "Manage Tenants",
-      href: "/tenants",
-      complete: tenantCount > 0,
+      link: "/tenants",
     },
     {
-      number: 4,
+      number: "④",
       icon: "💰",
       title: "Payments",
       description:
-        "Record rent payments and track outstanding rent.",
+        "Record rent and track outstanding payments.",
+      count: outstanding,
+      label: "Outstanding Rent",
       button: "View Payments",
-      href: "/payments",
-      complete: false,
+      link: "/payments",
     },
     {
-      number: 5,
+      number: "⑤",
       icon: "🔧",
       title: "Maintenance",
       description:
-        "Track and manage maintenance requests.",
+        "Record and track maintenance requests.",
+      count: null,
+      label: "Maintenance",
       button: "View Maintenance",
-      href: "/maintenance",
-      complete: false,
+      link: "/maintenance",
     },
   ];
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between px-6 py-5">
           <div>
             <h1 className="text-xl font-bold">
               MANAGIKA HOMES
@@ -259,180 +230,103 @@ export default function LandlordDashboard() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-6 py-8">
+      <div className="mx-auto max-w-[1500px] px-6 py-8">
         <div className="mb-8">
           <h2 className="text-3xl font-bold">
             Dashboard
           </h2>
 
           <p className="mt-2 text-slate-600">
-            Manage your properties, tenants, rent and
-            maintenance from one place.
+            Follow the steps from left to right to manage
+            your property.
           </p>
         </div>
 
-        {/* SUMMARY */}
-        <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">
-              Properties
-            </p>
+        {/* MAIN STEP FLOW */}
+        <section className="flex items-stretch gap-3 overflow-x-auto pb-4">
+          {steps.map((step, index) => (
+            <div
+              key={step.number}
+              className="flex min-w-[245px] flex-1 items-center"
+            >
+              <div className="w-full rounded-2xl border bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-3xl font-bold">
+                    {step.number}
+                  </span>
 
-            <p className="mt-3 text-3xl font-bold">
-              {loading ? "—" : propertyCount}
-            </p>
-
-            <p className="mt-2 text-sm text-slate-500">
-              Buildings and properties
-            </p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">
-              Units
-            </p>
-
-            <p className="mt-3 text-3xl font-bold">
-              {loading ? "—" : unitCount}
-            </p>
-
-            <p className="mt-2 text-sm text-slate-500">
-              Total rental units
-            </p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">
-              Tenants
-            </p>
-
-            <p className="mt-3 text-3xl font-bold">
-              {loading ? "—" : tenantCount}
-            </p>
-
-            <p className="mt-2 text-sm text-slate-500">
-              Active tenants
-            </p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">
-              Outstanding Rent
-            </p>
-
-            <p className="mt-3 text-3xl font-bold">
-              {loading
-                ? "—"
-                : "KSh " +
-                  outstanding.toLocaleString()}
-            </p>
-
-            <p className="mt-2 text-sm text-slate-500">
-              This month, currently unpaid
-            </p>
-          </div>
-        </section>
-
-        {/* WORKFLOW */}
-        <section className="mt-10">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold">
-              How to get started
-            </h2>
-
-            <p className="mt-1 text-slate-600">
-              Follow these steps to set up and manage your
-              property.
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            {steps.map((step) => {
-              const isNext = step.number === nextStep;
-              const isComplete = step.complete;
-
-              return (
-                <div key={step.number}>
-                  <div
-                    className={`rounded-2xl border bg-white p-6 shadow-sm ${
-                      isNext
-                        ? "border-slate-900 ring-2 ring-slate-100"
-                        : ""
-                    }`}
-                  >
-                    <div className="flex flex-col gap-5 md:flex-row md:items-center">
-                      <div
-                        className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl font-bold ${
-                          isComplete
-                            ? "bg-slate-900 text-white"
-                            : isNext
-                            ? "bg-slate-900 text-white"
-                            : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {isComplete
-                          ? "✓"
-                          : step.number}
-                      </div>
-
-                      <div className="flex-1">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className="text-2xl">
-                            {step.icon}
-                          </span>
-
-                          <h3 className="text-xl font-bold">
-                            {step.title}
-                          </h3>
-
-                          {isComplete && (
-                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                              Complete
-                            </span>
-                          )}
-
-                          {isNext && (
-                            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
-                              Next step
-                            </span>
-                          )}
-                        </div>
-
-                        <p className="mt-2 text-slate-600">
-                          {step.description}
-                        </p>
-                      </div>
-
-                      <a
-                        href={step.href}
-                        className={`rounded-lg px-5 py-3 text-center font-semibold ${
-                          isNext
-                            ? "bg-slate-900 text-white hover:bg-slate-800"
-                            : "border border-slate-300 bg-white hover:bg-slate-50"
-                        }`}
-                      >
-                        {step.button}
-                      </a>
-                    </div>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-2xl">
+                    {step.icon}
                   </div>
+                </div>
 
-                  {step.number < 5 && (
-                    <div className="flex justify-center py-2">
-                      <div className="text-xl text-slate-300">
-                        ↓
-                      </div>
-                    </div>
+                <h3 className="mt-5 text-xl font-bold">
+                  {step.title}
+                </h3>
+
+                <p className="mt-2 min-h-[48px] text-sm text-slate-600">
+                  {step.description}
+                </p>
+
+                <div className="mt-5 border-t pt-4">
+                  <p className="text-sm text-slate-500">
+                    {step.label}
+                  </p>
+
+                  {step.count !== null ? (
+                    <p className="mt-1 text-2xl font-bold">
+                      {loading
+                        ? "—"
+                        : step.title === "Payments"
+                        ? `KSh ${Number(
+                            step.count
+                          ).toLocaleString()}`
+                        : step.count}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-2xl font-bold">
+                      —
+                    </p>
                   )}
                 </div>
-              );
-            })}
+
+                <a
+                  href={step.link}
+                  className="mt-5 block rounded-lg bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  {step.button}
+                </a>
+              </div>
+
+              {index < steps.length - 1 && (
+                <div className="px-1 text-3xl font-bold text-slate-400">
+                  →
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+
+        {/* SETUP ORDER */}
+        <section className="mt-8 rounded-2xl border bg-white p-7 shadow-sm">
+          <h3 className="text-xl font-bold">
+            Property Setup Order
+          </h3>
+
+          <div className="mt-6 rounded-xl bg-slate-50 p-5 text-center">
+            <p className="text-lg font-bold">
+              ① Properties → ② Units → ③ Tenants → ④ Payments → ⑤ Maintenance
+            </p>
+
+            <p className="mt-2 text-sm text-slate-500">
+              Follow this order when setting up a new property.
+            </p>
           </div>
         </section>
       </div>
 
       <footer className="mt-10 border-t bg-white px-6 py-6 text-center text-sm text-slate-500">
-        © 2026 Managika Homes. Property management made
-        simple.
+        © 2026 Managika Homes. Property management made simple.
       </footer>
     </main>
   );
