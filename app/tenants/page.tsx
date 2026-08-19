@@ -1,139 +1,246 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+type Unit = {
+id: string;
+unit_number: string;
+base_rent: number;
+status: string;
+property_id: string;
+properties: { property_name: string } | null;
+};
+
+type Tenant = {
+id: string;
+full_name: string;
+phone_number: string;
+email: string | null;
+status: string;
+unit_id: string | null;
+units: { unit_number: string; base_rent: number; properties: { property_name: string } | null } | null;
+};
+
 export default function TenantsPage() {
-  return (
-    <main className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+const [tenants, setTenants] = useState<Tenant[]>([]);
+const [vacantUnits, setVacantUnits] = useState<Unit[]>([]);
+const [loading, setLoading] = useState(true);
+const [showForm, setShowForm] = useState(false);
+
+const [fullName, setFullName] = useState("");
+const [phone, setPhone] = useState("");
+const [email, setEmail] = useState("");
+const [unitId, setUnitId] = useState("");
+
+async function loadVacantUnits() {
+const { data } = await supabase
+.from("units")
+.select("id, unit_number, base_rent, status, property_id, properties(property_name)")
+.eq("status", "vacant")
+.order("unit_number", { ascending: true });
+if (data) {
+setVacantUnits(data as unknown as Unit[]);
+}
+}
+
+async function loadTenants() {
+setLoading(true);
+const { data, error } = await supabase
+.from("tenants")
+.select("id, full_name, phone_number, email, status, unit_id, units(unit_number, base_rent, properties(property_name))")
+.order("created_at", { ascending: false });
+if (!error && data) {
+setTenants(data as unknown as Tenant[]);
+}
+setLoading(false);
+}
+
+useEffect(() => {
+loadVacantUnits();
+loadTenants();
+}, []);
+
+async function addTenant() {
+if (!fullName.trim()) {
+alert("Please enter the tenant's name.");
+return;
+}
+if (!phone.trim()) {
+alert("Please enter the tenant's phone number.");
+return;
+}
+
+const { error: tenantError } = await supabase.from("tenants").insert({
+  full_name: fullName.trim(),
+  phone_number: phone.trim(),
+  email: email.trim() || null,
+  unit_id: unitId || null,
+  status: "active",
+  joined_at: new Date().toISOString(),
+});
+
+if (tenantError) {
+  alert("Error saving tenant: " + tenantError.message);
+  return;
+}
+
+if (unitId) {
+  await supabase.from("units").update({ status: "occupied" }).eq("id", unitId);
+}
+
+setFullName("");
+setPhone("");
+setEmail("");
+setUnitId("");
+setShowForm(false);
+loadVacantUnits();
+loadTenants();
+
+}
+
+async function deleteTenant(tenant: Tenant) {
+const confirmed = window.confirm("Are you sure you want to remove this tenant?");
+if (!confirmed) return;
+
+const { error } = await supabase.from("tenants").delete().eq("id", tenant.id);
+if (error) {
+  alert("Error removing tenant: " + error.message);
+  return;
+}
+
+if (tenant.unit_id) {
+  await supabase.from("units").update({ status: "vacant" }).eq("id", tenant.unit_id);
+}
+
+loadVacantUnits();
+loadTenants();
+
+}
+
+const totalTenants = tenants.length;
+const activeTenants = tenants.filter((t) => t.status === "active").length;
+const totalRent = tenants.reduce((sum, t) => sum + (Number(t.units?.base_rent) || 0), 0);
+
+return (
+<main className="min-h-screen bg-gray-100">
+<header className="bg-white border-b">
+<div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+<div>
+<h1 className="text-2xl font-bold text-gray-900">MANAGIKA HOMES</h1>
+<p className="text-sm text-gray-500">Property Management Made Simple</p>
+</div>
+<a href="/landlord/dashboard" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">Dashboard</a>
+</div>
+</header>
+
+  <section className="max-w-7xl mx-auto px-6 py-8">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+      <div>
+        <h2 className="text-3xl font-bold text-gray-900">Tenants</h2>
+        <p className="text-gray-500 mt-1">Manage tenants, assignments and rental information.</p>
+      </div>
+      <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-black text-white font-medium">+ Add Tenant</button>
+    </div>
+
+    {showForm && (
+      <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
+        <h3 className="mb-5 text-xl font-bold text-gray-900">Add New Tenant</h3>
+        <div className="grid gap-5 md:grid-cols-2">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              MANAGIKA HOMES
-            </h1>
-            <p className="text-sm text-gray-500">
-              Property Management Made Simple
-            </p>
+            <label className="mb-2 block text-sm font-medium text-gray-700">Full Name</label>
+            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. John Kamau" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
           </div>
-
-          <a
-            href="/"
-            className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700"
-          >
-            Dashboard
-          </a>
-        </div>
-      </header>
-
-      {/* Content */}
-      <section className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <h2 className="text-3xl font-bold text-gray-900">
-              Tenants
-            </h2>
-            <p className="text-gray-500 mt-1">
-              Manage tenants, assignments and rental information.
-            </p>
+            <label className="mb-2 block text-sm font-medium text-gray-700">Phone Number</label>
+            <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
           </div>
-
-          <button className="px-5 py-3 rounded-lg bg-black text-white font-medium">
-            + Add Tenant
-          </button>
-        </div>
-
-        {/* Tenant summary */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-          <div className="bg-white rounded-xl p-6 border shadow-sm">
-            <p className="text-sm text-gray-500">Total Tenants</p>
-            <p className="text-3xl font-bold mt-2">0</p>
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700">Email (optional)</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. john@email.com" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
           </div>
-
-          <div className="bg-white rounded-xl p-6 border shadow-sm">
-            <p className="text-sm text-gray-500">Active Tenants</p>
-            <p className="text-3xl font-bold mt-2">0</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border shadow-sm">
-            <p className="text-sm text-gray-500">Rent Due</p>
-            <p className="text-3xl font-bold mt-2">KSh 0</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border shadow-sm">
-            <p className="text-sm text-gray-500">Rent Paid</p>
-            <p className="text-3xl font-bold mt-2">KSh 0</p>
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700">Assign to Unit</label>
+            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black">
+              <option value="">No unit yet</option>
+              {vacantUnits.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.properties?.property_name} - {u.unit_number} (KSh {Number(u.base_rent).toLocaleString()})
+                </option>
+              ))}
+            </select>
+            {vacantUnits.length === 0 && (
+              <p className="mt-2 text-sm text-gray-500">No vacant units available. Add units first, or leave unassigned.</p>
+            )}
           </div>
         </div>
-
-        {/* Empty state */}
-        <div className="bg-white rounded-xl border shadow-sm p-10 text-center">
-          <div className="text-5xl mb-5">👥</div>
-
-          <h3 className="text-2xl font-semibold text-gray-900">
-            No tenants yet
-          </h3>
-
-          <p className="text-gray-500 max-w-md mx-auto mt-2">
-            Add your first tenant and assign them to a property
-            and rental unit.
-          </p>
-
-          <button className="mt-6 px-5 py-3 rounded-lg bg-black text-white font-medium">
-            + Add Your First Tenant
-          </button>
+        <div className="mt-6 flex gap-3">
+          <button onClick={addTenant} className="rounded-lg bg-black px-5 py-3 font-medium text-white hover:bg-gray-800">Save Tenant</button>
+          <button onClick={() => setShowForm(false)} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
         </div>
+      </div>
+    )}
 
-        {/* Tenant table */}
-        <div className="mt-8 bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-6 py-5 border-b">
-            <h3 className="text-xl font-semibold">
-              Tenant Information
-            </h3>
-          </div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+      <div className="bg-white rounded-xl p-6 border shadow-sm">
+        <p className="text-sm text-gray-500">Total Tenants</p>
+        <p className="text-3xl font-bold mt-2">{totalTenants}</p>
+      </div>
+      <div className="bg-white rounded-xl p-6 border shadow-sm">
+        <p className="text-sm text-gray-500">Active Tenants</p>
+        <p className="text-3xl font-bold mt-2">{activeTenants}</p>
+      </div>
+      <div className="bg-white rounded-xl p-6 border shadow-sm">
+        <p className="text-sm text-gray-500">Total Monthly Rent</p>
+        <p className="text-3xl font-bold mt-2">KSh {totalRent.toLocaleString()}</p>
+      </div>
+    </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Tenant
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Phone
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Property
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Unit
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Rent
-                  </th>
-                  <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-6 py-10 text-center text-gray-500"
-                  >
-                    No tenants have been added yet.
+    <div className="mt-8 bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div className="px-6 py-5 border-b">
+        <h3 className="text-xl font-semibold">Tenant Information</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Tenant</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Phone</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Property</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Unit</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Rent</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={6} className="px-6 py-10 text-center text-gray-500">Loading tenants...</td></tr>
+            ) : tenants.length === 0 ? (
+              <tr><td colSpan={6} className="px-6 py-10 text-center text-gray-500">No tenants have been added yet.</td></tr>
+            ) : (
+              tenants.map((tenant) => (
+                <tr key={tenant.id} className="border-t">
+                  <td className="px-6 py-4">{tenant.full_name}</td>
+                  <td className="px-6 py-4">{tenant.phone_number}</td>
+                  <td className="px-6 py-4">{tenant.units?.properties?.property_name || "—"}</td>
+                  <td className="px-6 py-4">{tenant.units?.unit_number || "Unassigned"}</td>
+                  <td className="px-6 py-4">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</td>
+                  <td className="px-6 py-4">
+                    <button onClick={() => deleteTenant(tenant)} className="text-sm font-medium text-red-600 hover:underline">Remove</button>
                   </td>
                 </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
-      {/* Footer */}
-      <footer className="border-t bg-white mt-10">
-        <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-gray-500">
-          © 2026 Managika Homes. Property management made simple.
-        </div>
-      </footer>
-    </main>
-  );
+  <footer className="border-t bg-white mt-10">
+    <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-gray-500">© 2026 Managika Homes. Property management made simple.</div>
+  </footer>
+</main>
+
+);
 }
