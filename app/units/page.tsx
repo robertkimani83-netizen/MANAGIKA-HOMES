@@ -56,11 +56,14 @@ export default function UnitsPage() {
     }
   }
 
-  async function loadUnits() {
+  async function loadUnits(id: string) {
     setLoading(true);
     const { data, error } = await supabase
       .from("units")
-      .select("id, unit_number, base_rent, garbage_fee, status, property_id, properties(property_name)")
+      .select(
+        "id, unit_number, base_rent, garbage_fee, status, property_id, properties!inner(property_name, landlord_id)"
+      )
+      .eq("properties.landlord_id", id)
       .order("created_at", { ascending: false });
     if (!error && data) {
       setUnits(data as unknown as Unit[]);
@@ -71,11 +74,12 @@ export default function UnitsPage() {
   useEffect(() => {
     if (landlordId) {
       loadProperties(landlordId);
-      loadUnits();
+      loadUnits(landlordId);
     }
   }, [landlordId]);
 
   async function addUnit() {
+    if (!landlordId) return;
     if (!propertyId) {
       alert("Please add a property first, then select it here.");
       return;
@@ -107,10 +111,11 @@ export default function UnitsPage() {
     setBaseRent("");
     setGarbageFee("");
     setShowForm(false);
-    loadUnits();
+    loadUnits(landlordId);
   }
 
   async function deleteUnit(id: string) {
+    if (!landlordId) return;
     const confirmed = window.confirm("Are you sure you want to delete this unit?");
     if (!confirmed) return;
     const { error } = await supabase.from("units").delete().eq("id", id);
@@ -118,7 +123,7 @@ export default function UnitsPage() {
       alert("Error deleting unit: " + error.message);
       return;
     }
-    loadUnits();
+    loadUnits(landlordId);
   }
 
   const totalUnits = units.length;
