@@ -187,7 +187,7 @@ export default function LandlordDashboard() {
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
       {/* Header */}
-      <header className="border-b bg-white">
+      <header className="city-skyline-header border-b">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">
@@ -208,7 +208,7 @@ export default function LandlordDashboard() {
       </header>
 
       {/* Hero */}
-      <section className="border-b bg-slate-900 text-white">
+     <section className="city-skyline-hero border-b">
         <div className="mx-auto max-w-7xl px-6 py-10">
           <p className="text-sm font-semibold uppercase tracking-widest text-slate-300">
             Landlord Portal
