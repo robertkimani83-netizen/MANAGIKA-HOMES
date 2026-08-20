@@ -4,6 +4,37 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
+type Invoice = {
+id: string;
+billing_period: string;
+total_due: number;
+status: string;
+due_date: string;
+};
+
+type Maintenance = {
+id: string;
+category: string;
+title: string;
+description: string;
+urgency: string;
+status: string;
+created_at: string;
+};
+
+type Tenant = {
+id: string;
+full_name: string;
+phone_number: string;
+email: string | null;
+unit_id: string | null;
+units: {
+unit_number: string;
+base_rent: number;
+properties: { property_name: string } | null;
+} | null;
+};
+
 function currentPeriod() {
 const d = new Date();
 const names = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -13,9 +44,9 @@ return names[d.getMonth()] + " " + d.getFullYear();
 export default function TenantDashboard() {
 const router = useRouter();
 const [loading, setLoading] = useState(true);
-const [tenant, setTenant] = useState(null);
-const [invoices, setInvoices] = useState([]);
-const [maintenance, setMaintenance] = useState([]);
+const [tenant, setTenant] = useState<Tenant | null>(null);
+const [invoices, setInvoices] = useState<Invoice[]>([]);
+const [maintenance, setMaintenance] = useState<Maintenance[]>([]);
 const [showForm, setShowForm] = useState(false);
 const [category, setCategory] = useState("plumbing");
 const [title, setTitle] = useState("");
@@ -41,7 +72,7 @@ return;
     return;
   }
 
-  setTenant(tenantRow);
+  setTenant(tenantRow as unknown as Tenant);
 
   const { data: invoiceRows } = await supabase
     .from("invoices")
@@ -49,7 +80,7 @@ return;
     .eq("tenant_id", tenantRow.id)
     .order("due_date", { ascending: false });
 
-  setInvoices(invoiceRows || []);
+  setInvoices((invoiceRows || []) as Invoice[]);
 
   const { data: maintenanceRows } = await supabase
     .from("maintenance_requests")
@@ -57,7 +88,7 @@ return;
     .eq("tenant_id", tenantRow.id)
     .order("created_at", { ascending: false });
 
-  setMaintenance(maintenanceRows || []);
+  setMaintenance((maintenanceRows || []) as Maintenance[]);
   setLoading(false);
 }
 init();
@@ -94,7 +125,7 @@ const { data: maintenanceRows } = await supabase
   .select("id, category, title, description, urgency, status, created_at")
   .eq("tenant_id", tenant.id)
   .order("created_at", { ascending: false });
-setMaintenance(maintenanceRows || []);
+setMaintenance((maintenanceRows || []) as Maintenance[]);
 
 }
 
@@ -103,7 +134,7 @@ await supabase.auth.signOut();
 router.push("/tenant/login");
 }
 
-if (loading) {
+if (loading || !tenant) {
 return (
 <main className="min-h-screen bg-gray-100 flex items-center justify-center text-gray-500">
 Loading your account...
