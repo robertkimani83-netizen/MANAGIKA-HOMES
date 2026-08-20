@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 function currentPeriod() {
 const d = new Date();
-const names = [
+const names 
 "January",
 "February",
 "March",
@@ -204,10 +204,8 @@ MANAGIKA HOMES
 Property Management Made Simple
 </p>
 </div>
-
-        href="/landlord/login"
-        className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-      >
+          <a href="/landlord/login"
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
         Sign Out
       </a>
     </div>
