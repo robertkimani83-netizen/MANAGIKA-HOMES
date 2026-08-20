@@ -22,6 +22,7 @@ const [tenantCount, setTenantCount] = useState(0);
 const [outstanding, setOutstanding] = useState(0);
 const [maintenanceCount, setMaintenanceCount] = useState(0);
 const [urgentMaintenance, setUrgentMaintenance] = useState(0);
+const [complaintCount, setComplaintCount] = useState(0);
 const [loading, setLoading] = useState(true);
 
 useEffect(() => {
@@ -29,11 +30,7 @@ async function loadStats() {
 setLoading(true);
 
   const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    window.location.href = "/landlord/login";
-    return;
-  }
+  if (!user) { window.location.href = "/landlord/login"; return; }
 
   const landlordId = user.id;
 
@@ -60,7 +57,6 @@ setLoading(true);
   if (tenantIds.length > 0) {
     const { data: invoicesThisPeriod } = await supabase.from("invoices").select("id").in("tenant_id", tenantIds).eq("billing_period", period);
     const invoiceIds = (invoicesThisPeriod || []).map((i) => i.id);
-
     if (invoiceIds.length > 0) {
       const { data: paymentsThisPeriod } = await supabase.from("payments").select("amount_paid").in("invoice_id", invoiceIds);
       collected = (paymentsThisPeriod || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
@@ -69,12 +65,16 @@ setLoading(true);
 
   let openRequestsCount = 0;
   let urgentRequestsCount = 0;
+  let openComplaintsCount = 0;
   if (unitIds.length > 0) {
     const { data: maintenanceRequests } = await supabase.from("maintenance_requests").select("id, status, urgency").in("unit_id", unitIds);
     const requests = (maintenanceRequests || []) as MaintenanceRequest[];
     const openRequests = requests.filter((r) => r.status !== "completed");
     openRequestsCount = openRequests.length;
     urgentRequestsCount = openRequests.filter((r) => r.urgency === "urgent").length;
+
+    const { data: complaintRows } = await supabase.from("complaints").select("id, status").in("unit_id", unitIds);
+    openComplaintsCount = (complaintRows || []).filter((c: any) => c.status !== "resolved").length;
   }
 
   setPropertyCount(propertyIds.length);
@@ -83,6 +83,7 @@ setLoading(true);
   setOutstanding(Math.max(rentExpected - collected, 0));
   setMaintenanceCount(openRequestsCount);
   setUrgentMaintenance(urgentRequestsCount);
+  setComplaintCount(openComplaintsCount);
 
   setLoading(false);
 }
@@ -141,9 +142,7 @@ return (
               </div>
               <a href={step.href} className="mt-5 flex items-center justify-center rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700">{step.button}</a>
             </div>
-            {index < steps.length - 1 && (
-              <div className="hidden px-2 text-2xl font-bold text-slate-400 xl:block">→</div>
-            )}
+            {index < steps.length - 1 && (<div className="hidden px-2 text-2xl font-bold text-slate-400 xl:block">→</div>)}
           </div>
         ))}
       </div>
@@ -189,12 +188,13 @@ return (
 
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 className="text-xl font-bold">Quick Navigation</h3>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <a href="/properties" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🏠 Properties</a>
         <a href="/units" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🚪 Units</a>
         <a href="/tenants" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">👥 Tenants</a>
         <a href="/payments" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">💰 Payments</a>
         <a href="/maintenance" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🔧 Maintenance</a>
+        <a href="/complaints" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">📢 Complaints{complaintCount > 0 ? " (" + complaintCount + ")" : ""}</a>
       </div>
     </div>
   </section>
