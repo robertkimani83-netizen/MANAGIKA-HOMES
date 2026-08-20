@@ -43,13 +43,11 @@ return;
 }
 setLoading(true);
 
-const { data: existingTenant } = await supabase
-  .from("tenants")
-  .select("id")
-  .eq("email", email.trim())
-  .maybeSingle();
+const { data: emailExists } = await supabase.rpc("check_tenant_email", {
+  check_email: email.trim(),
+});
 
-if (!existingTenant) {
+if (!emailExists) {
   setLoading(false);
   setError("This email is not registered as a tenant by your landlord. Please contact them first.");
   return;
