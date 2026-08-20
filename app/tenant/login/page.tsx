@@ -56,6 +56,9 @@ if (!emailExists) {
 const { data, error: signupError } = await supabase.auth.signUp({
   email: email.trim(),
   password,
+  options: {
+    emailRedirectTo: "https://managikahomes.co.ke/tenant/login",
+  },
 });
 setLoading(false);
 if (signupError) {
