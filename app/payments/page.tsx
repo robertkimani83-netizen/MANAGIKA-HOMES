@@ -13,7 +13,9 @@ type Tenant = {
         id: string;
         unit_number: string;
         base_rent: number;
-        properties: { property_name: string } | null;
+        properties: {
+          property_name: string;
+        } | null;
       }
     | null;
 };
@@ -25,11 +27,25 @@ type Payment = {
   transaction_reference: string | null;
   paid_at: string;
   invoices: {
+    id: string;
     billing_period: string;
+    total_due: number;
     status: string;
-    tenants: { full_name: string } | null;
-    units: { unit_number: string } | null;
+    tenants: {
+      full_name: string;
+    } | null;
+    units: {
+      unit_number: string;
+    } | null;
   } | null;
+};
+
+type TenantSummary = {
+  tenant: Tenant;
+  expected: number;
+  paid: number;
+  balance: number;
+  status: string;
 };
 
 function currentPeriod() {
@@ -67,6 +83,8 @@ export default function PaymentsPage() {
   const [method, setMethod] = useState("mpesa");
   const [reference, setReference] = useState("");
 
+  const period = currentPeriod();
+
   useEffect(() => {
     async function init() {
       const { data } = await supabase.auth.getUser();
@@ -103,7 +121,7 @@ export default function PaymentsPage() {
     const { data, error } = await supabase
       .from("payments")
       .select(
-        "id, amount_paid, payment_method, transaction_reference, paid_at, invoices(billing_period, status, tenants!inner(full_name, landlord_id), units(unit_number))"
+        "id, amount_paid, payment_method, transaction_reference, paid_at, invoices!inner(id, billing_period, total_due, status, tenants!inner(full_name, landlord_id), units(unit_number))"
       )
       .eq("invoices.tenants.landlord_id", id)
       .order("paid_at", { ascending: false });
@@ -147,7 +165,6 @@ export default function PaymentsPage() {
       return;
     }
 
-    const period = currentPeriod();
     const rent = Number(tenant.units.base_rent) || 0;
 
     const { data: existingInvoice, error: invoiceLookupError } =
@@ -216,8 +233,24 @@ export default function PaymentsPage() {
       return;
     }
 
-    const newStatus =
-      amt >= totalDue ? "paid" : "partially_paid";
+    const { data: invoicePayments } = await supabase
+      .from("payments")
+      .select("amount_paid")
+      .eq("invoice_id", invoiceId);
+
+    const totalPaid = (invoicePayments || []).reduce(
+      (sum, payment) =>
+        sum + (Number(payment.amount_paid) || 0),
+      0
+    );
+
+    let newStatus = "unpaid";
+
+    if (totalPaid >= totalDue) {
+      newStatus = "paid";
+    } else if (totalPaid > 0) {
+      newStatus = "partially_paid";
+    }
 
     const { error: statusError } = await supabase
       .from("invoices")
@@ -240,29 +273,82 @@ export default function PaymentsPage() {
     loadPayments(landlordId);
   }
 
-  const period = currentPeriod();
+  const currentPayments = payments.filter(
+    (payment) =>
+      payment.invoices?.billing_period === period
+  );
 
-  const rentExpected = tenants.reduce(
-    (sum, tenant) =>
-      sum + (Number(tenant.units?.base_rent) || 0),
+  const tenantSummaries: TenantSummary[] = tenants.map(
+    (tenant) => {
+      const tenantPayments = currentPayments.filter(
+        (payment) =>
+          payment.invoices?.tenants?.full_name ===
+          tenant.full_name
+      );
+
+      const expected =
+        Number(tenant.units?.base_rent) || 0;
+
+      const paid = tenantPayments.reduce(
+        (sum, payment) =>
+          sum + (Number(payment.amount_paid) || 0),
+        0
+      );
+
+      const balance = Math.max(expected - paid, 0);
+
+      let status = "Unpaid";
+
+      if (expected > 0 && paid >= expected) {
+        status = "Paid";
+      } else if (paid > 0) {
+        status = "Partially Paid";
+      }
+
+      return {
+        tenant,
+        expected,
+        paid,
+        balance,
+        status,
+      };
+    }
+  );
+
+  const rentExpected = tenantSummaries.reduce(
+    (sum, item) => sum + item.expected,
     0
   );
 
-  const rentCollected = payments
-    .filter(
-      (payment) =>
-        payment.invoices?.billing_period === period
-    )
-    .reduce(
-      (sum, payment) =>
-        sum + (Number(payment.amount_paid) || 0),
-      0
-    );
+  const rentCollected = tenantSummaries.reduce(
+    (sum, item) => sum + item.paid,
+    0
+  );
 
   const outstanding = Math.max(
     rentExpected - rentCollected,
     0
   );
+
+  const paidTenants = tenantSummaries.filter(
+    (item) => item.status === "Paid"
+  ).length;
+
+  const unpaidTenants = tenantSummaries.filter(
+    (item) => item.status === "Unpaid"
+  ).length;
+
+  function statusClasses(status: string) {
+    if (status === "Paid") {
+      return "bg-green-100 text-green-700";
+    }
+
+    if (status === "Partially Paid") {
+      return "bg-amber-100 text-amber-700";
+    }
+
+    return "bg-red-100 text-red-700";
+  }
 
   return (
     <main className="min-h-screen bg-gray-100">
@@ -272,6 +358,7 @@ export default function PaymentsPage() {
             <h1 className="text-2xl font-bold text-gray-900">
               MANAGIKA HOMES
             </h1>
+
             <p className="text-sm text-gray-500">
               Property Management Made Simple
             </p>
@@ -294,7 +381,7 @@ export default function PaymentsPage() {
             </h2>
 
             <p className="mt-1 text-gray-500">
-              Track rent, payments, invoices and outstanding balances —{" "}
+              Track rent, payments, invoices and balances —{" "}
               {period}.
             </p>
           </div>
@@ -399,7 +486,7 @@ export default function PaymentsPage() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Reference (optional)
+                    Reference
                   </label>
 
                   <input
@@ -433,6 +520,7 @@ export default function PaymentsPage() {
           </div>
         )}
 
+        {/* Summary */}
         <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-4">
           <div className="rounded-xl border bg-white p-6 shadow-sm">
             <p className="text-sm text-gray-500">
@@ -442,6 +530,10 @@ export default function PaymentsPage() {
             <p className="mt-2 text-3xl font-bold">
               KSh {rentExpected.toLocaleString()}
             </p>
+
+            <p className="mt-1 text-sm text-gray-400">
+              {period}
+            </p>
           </div>
 
           <div className="rounded-xl border bg-white p-6 shadow-sm">
@@ -449,8 +541,13 @@ export default function PaymentsPage() {
               Rent Collected
             </p>
 
-            <p className="mt-2 text-3xl font-bold">
+            <p className="mt-2 text-3xl font-bold text-green-700">
               KSh {rentCollected.toLocaleString()}
+            </p>
+
+            <p className="mt-1 text-sm text-gray-400">
+              {paidTenants} tenant
+              {paidTenants === 1 ? "" : "s"} fully paid
             </p>
           </div>
 
@@ -459,8 +556,12 @@ export default function PaymentsPage() {
               Outstanding
             </p>
 
-            <p className="mt-2 text-3xl font-bold">
+            <p className="mt-2 text-3xl font-bold text-red-600">
               KSh {outstanding.toLocaleString()}
+            </p>
+
+            <p className="mt-1 text-sm text-gray-400">
+              {unpaidTenants} unpaid
             </p>
           </div>
 
@@ -472,41 +573,58 @@ export default function PaymentsPage() {
             <p className="mt-2 text-3xl font-bold">
               {payments.length}
             </p>
+
+            <p className="mt-1 text-sm text-gray-400">
+              All recorded payments
+            </p>
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        {/* Tenant rent status */}
+        <div className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
           <div className="border-b px-6 py-5">
             <h3 className="text-xl font-semibold">
-              Recent Payments
+              Rent Status — {period}
             </h3>
+
+            <p className="mt-1 text-sm text-gray-500">
+              Current rent position for each active tenant.
+            </p>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
                     Tenant
                   </th>
 
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Property
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
                     Unit
                   </th>
 
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                    Amount
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Billing Period
                   </th>
 
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                    Period
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Expected
                   </th>
 
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                    Method
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Paid
                   </th>
 
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Balance
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
                     Status
                   </th>
                 </tr>
@@ -516,7 +634,133 @@ export default function PaymentsPage() {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={8}
+                      className="px-6 py-10 text-center text-gray-500"
+                    >
+                      Loading payment information...
+                    </td>
+                  </tr>
+                ) : tenantSummaries.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="px-6 py-10 text-center text-gray-500"
+                    >
+                      No active tenants have been added yet.
+                    </td>
+                  </tr>
+                ) : (
+                  tenantSummaries.map((item) => (
+                    <tr
+                      key={item.tenant.id}
+                      className="border-t"
+                    >
+                      <td className="whitespace-nowrap px-6 py-4 font-medium">
+                        {item.tenant.full_name}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4">
+                        {item.tenant.units?.properties
+                          ?.property_name || "—"}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4">
+                        {item.tenant.units?.unit_number ||
+                          "Unassigned"}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4">
+                        {period}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4">
+                        KSh{" "}
+                        {item.expected.toLocaleString()}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4 font-medium text-green-700">
+                        KSh{" "}
+                        {item.paid.toLocaleString()}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4 font-medium">
+                        KSh{" "}
+                        {item.balance.toLocaleString()}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4">
+                        <span
+                          className={
+                            "inline-flex rounded-full px-3 py-1 text-xs font-semibold " +
+                            statusClasses(item.status)
+                          }
+                        >
+                          {item.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Payment history */}
+        <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+          <div className="border-b px-6 py-5">
+            <h3 className="text-xl font-semibold">
+              Payment History
+            </h3>
+
+            <p className="mt-1 text-sm text-gray-500">
+              All payments recorded for your tenants.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Tenant
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Unit
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Amount
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Period
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Method
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Reference
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Date
+                  </th>
+
+                  <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td
+                      colSpan={8}
                       className="px-6 py-10 text-center text-gray-500"
                     >
                       Loading payments...
@@ -525,7 +769,7 @@ export default function PaymentsPage() {
                 ) : payments.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={8}
                       className="px-6 py-10 text-center text-gray-500"
                     >
                       No payments have been recorded yet.
@@ -537,42 +781,68 @@ export default function PaymentsPage() {
                       key={payment.id}
                       className="border-t"
                     >
-                      <td className="px-6 py-4">
+                      <td className="whitespace-nowrap px-6 py-4 font-medium">
                         {payment.invoices?.tenants
                           ?.full_name || "—"}
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="whitespace-nowrap px-6 py-4">
                         {payment.invoices?.units
                           ?.unit_number || "—"}
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="whitespace-nowrap px-6 py-4 font-medium">
                         KSh{" "}
                         {Number(
                           payment.amount_paid
                         ).toLocaleString()}
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className="whitespace-nowrap px-6 py-4">
                         {payment.invoices
                           ?.billing_period || "—"}
                       </td>
 
-                      <td className="px-6 py-4 capitalize">
+                      <td className="whitespace-nowrap px-6 py-4 capitalize">
                         {payment.payment_method.replace(
                           "_",
                           " "
                         )}
                       </td>
 
-                      <td className="px-6 py-4 capitalize">
-                        {payment.invoices?.status
-                          ? payment.invoices.status.replace(
-                              "_",
-                              " "
+                      <td className="whitespace-nowrap px-6 py-4">
+                        {payment.transaction_reference ||
+                          "—"}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4">
+                        {new Date(
+                          payment.paid_at
+                        ).toLocaleDateString()}
+                      </td>
+
+                      <td className="whitespace-nowrap px-6 py-4">
+                        <span
+                          className={
+                            "inline-flex rounded-full px-3 py-1 text-xs font-semibold " +
+                            statusClasses(
+                              payment.invoices?.status ===
+                                "paid"
+                                ? "Paid"
+                                : payment.invoices?.status ===
+                                  "partially_paid"
+                                ? "Partially Paid"
+                                : "Unpaid"
                             )
-                          : "—"}
+                          }
+                        >
+                          {payment.invoices?.status
+                            ? payment.invoices.status.replace(
+                                "_",
+                                " "
+                              )
+                            : "—"}
+                        </span>
                       </td>
                     </tr>
                   ))
