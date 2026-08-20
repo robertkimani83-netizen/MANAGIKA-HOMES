@@ -1,7 +1,3 @@
-Understood — here's the whole file again, fresh. Open Notepad on app\landlord\dashboard\page.tsx, select all (Ctrl+A), delete, and paste this:
-
----START COPYING BELOW THIS LINE---
-
 "use client";
 
 import { useEffect, useState } from "react";
