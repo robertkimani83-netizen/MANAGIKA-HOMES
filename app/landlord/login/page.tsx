@@ -47,6 +47,9 @@ setLoading(true);
 const { data, error: signupError } = await supabase.auth.signUp({
 email: email.trim(),
 password,
+options: {
+emailRedirectTo: "https://managikahomes.co.ke/landlord/login",
+},
 });
 if (signupError) {
 setLoading(false);
