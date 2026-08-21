@@ -10,6 +10,14 @@ const names = ["January", "February", "March", "April", "May", "June", "July", "
 return names[d.getMonth()] + " " + d.getFullYear();
 }
 
+function toKenyanFormat(phone: string) {
+const digits = phone.replace(/\D/g, "");
+if (digits.startsWith("254")) return digits;
+if (digits.startsWith("0")) return "254" + digits.slice(1);
+if (digits.startsWith("7") || digits.startsWith("1")) return "254" + digits;
+return digits;
+}
+
 export default function TenantDashboard() {
 const router = useRouter();
 const [loading, setLoading] = useState(true);
@@ -24,6 +32,7 @@ const [title, setTitle] = useState("");
 const [description, setDescription] = useState("");
 const [urgency, setUrgency] = useState("normal");
 const [complaintText, setComplaintText] = useState("");
+const [payingBalance, setPayingBalance] = useState(false);
 
 useEffect(() => {
 async function init() {
@@ -69,6 +78,32 @@ const { data: complaintRows } = await supabase.from("complaints").select("id, de
 setComplaints(complaintRows || []);
 }
 
+async function payWithMpesa() {
+if (!tenant || !tenant.phone_number || !tenant.units) { alert("Missing phone number or unit information."); return; }
+setPayingBalance(true);
+try {
+const res = await fetch("/api/mpesa-stk-push", {
+method: "POST",
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify({
+phoneNumber: toKenyanFormat(tenant.phone_number),
+amount: Number(tenant.units.base_rent),
+accountReference: tenant.full_name,
+}),
+});
+const result = await res.json();
+if (result.ResponseCode === "0") {
+alert("Check your phone to complete the M-Pesa payment.");
+} else {
+alert("Payment could not be started: " + (result.errorMessage || result.error || "unknown error"));
+}
+} catch (err: any) {
+alert("Error starting payment: " + err.message);
+} finally {
+setPayingBalance(false);
+}
+}
+
 async function signOut() {
 await supabase.auth.signOut();
 router.push("/tenant/login");
@@ -107,6 +142,11 @@ return (
       <div className="bg-white rounded-xl p-6 border shadow-sm">
         <p className="text-sm text-gray-500">{period} Status</p>
         <p className="text-3xl font-bold mt-2 capitalize">{currentInvoice ? currentInvoice.status.replace("_", " ") : "No invoice yet"}</p>
+        {currentInvoice?.status !== "paid" && tenant.units && (
+          <button onClick={payWithMpesa} disabled={payingBalance} className="mt-4 w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
+            {payingBalance ? "Starting..." : "Pay with M-Pesa"}
+          </button>
+        )}
       </div>
       <div className="bg-white rounded-xl p-6 border shadow-sm">
         <p className="text-sm text-gray-500">Open Maintenance</p>
