@@ -124,11 +124,11 @@ async function sendReminder(summary: TenantSummary) {
 if (!summary.tenant.phone_number) { alert("This tenant has no phone number on file."); return; }
 setSendingId(summary.tenant.id);
 try {
-const message = Hi ${summary.tenant.full_name}, this is a reminder from Managika Homes that your rent balance of KSh ${summary.balance.toLocaleString()} for ${period} is due. Please make payment at your earliest convenience.;
+const message = "Hi " + summary.tenant.full_name + ", this is a reminder from Managika Homes that your rent balance of KSh " + summary.balance.toLocaleString() + " for " + period + " is due. Please make payment at your earliest convenience.";
 const res = await fetch("/api/send-reminder", {
 method: "POST",
 headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ phoneNumber: toKenyanFormat(summary.tenant.phone_number), message }),
+body: JSON.stringify({ phoneNumber: toKenyanFormat(summary.tenant.phone_number), message: message }),
 });
 const result = await res.json();
 if (!res.ok) { alert("Failed to send reminder: " + (result.error || "unknown error")); return; }
