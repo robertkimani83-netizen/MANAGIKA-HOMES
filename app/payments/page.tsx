@@ -166,7 +166,7 @@ return "bg-red-100 text-red-700";
 }
 
 return (
-<main className="min-h-screen bg-slate-50">
+<main className="min-h-screen city-skyline-page">
 <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
 <header className="border-b bg-white">
 <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
