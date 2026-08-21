@@ -54,9 +54,8 @@ color:
 #f1f5f9;
 }
 .city-skyline-page {
-background-color: 
-#f8fafc;
-background-image: linear-gradient(180deg, rgba(248,250,252,0.96) 0%, rgba(248,250,252,0.96) 100%), url("https://c.pxhere.com/photos/81/9d/buildings_cars_city_highway_night_road_traffic_traffic_jam-1135160.jpg!d");
+background-color: #f8fafc;
+background-image: linear-gradient(180deg, rgba(248,250,252,0.97) 0%, rgba(248,250,252,0.97) 100%), url("https://c.pxhere.com/photos/81/9d/buildings_cars_city_highway_night_road_traffic_traffic_jam-1135160.jpg!d");
 background-size: cover;
 background-position: center;
 background-repeat: no-repeat;
