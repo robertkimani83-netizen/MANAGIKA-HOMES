@@ -166,36 +166,40 @@ return "bg-red-100 text-red-700";
 }
 
 return (
-<main className="min-h-screen bg-gray-100">
+<main className="min-h-screen bg-slate-50">
+<div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
 <header className="border-b bg-white">
 <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
 <div>
-<h1 className="text-2xl font-bold text-gray-900">MANAGIKA HOMES</h1>
-<p className="text-sm text-gray-500">Property Management Made Simple</p>
+<h1 className="text-2xl font-bold text-slate-900">MANAGIKA HOMES</h1>
+<p className="text-sm text-slate-500">Property Management Made Simple</p>
 </div>
-<a href="/landlord/dashboard" className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50">Dashboard</a>
+<a href="/landlord/dashboard" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-700 hover:bg-slate-50">Dashboard</a>
 </div>
 </header>
 
   <section className="mx-auto max-w-7xl px-6 py-8">
     <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 className="text-3xl font-bold text-gray-900">Rent & Payments</h2>
-        <p className="mt-1 text-gray-500">Track rent, payments, invoices and balances — {period}.</p>
+      <div className="flex items-center gap-4">
+        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 text-3xl">💰</span>
+        <div>
+          <h2 className="text-3xl font-bold text-slate-900">Rent & Payments</h2>
+          <p className="mt-1 text-slate-500">Track rent, payments, invoices and balances — {period}.</p>
+        </div>
       </div>
-      <button onClick={() => setShowForm(true)} className="rounded-lg bg-black px-5 py-3 font-medium text-white hover:bg-gray-800">+ Record Payment</button>
+      <button onClick={() => setShowForm(true)} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Record Payment</button>
     </div>
 
     {showForm && (
       <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
-        <h3 className="mb-5 text-xl font-bold text-gray-900">Record Payment — {period}</h3>
+        <h3 className="mb-5 text-xl font-bold text-slate-900">Record Payment — {period}</h3>
         {tenants.length === 0 ? (
-          <p className="text-gray-500">Add an active tenant with a unit assigned first.</p>
+          <p className="text-slate-500">Add an active tenant with a unit assigned first.</p>
         ) : (
           <div className="grid gap-5 md:grid-cols-4">
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Tenant</label>
-              <select value={tenantId} onChange={(e) => setTenantId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black">
+              <label className="mb-2 block text-sm font-medium text-slate-700">Tenant</label>
+              <select value={tenantId} onChange={(e) => setTenantId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
                 <option value="">Select tenant</option>
                 {tenants.filter((t) => t.units).map((tenant) => (
                   <option key={tenant.id} value={tenant.id}>{tenant.full_name} — {tenant.units?.unit_number} (KSh {Number(tenant.units?.base_rent).toLocaleString()})</option>
@@ -203,78 +207,78 @@ return (
               </select>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Amount Paid (KSh)</label>
-              <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 10000" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+              <label className="mb-2 block text-sm font-medium text-slate-700">Amount Paid (KSh)</label>
+              <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 10000" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Method</label>
-              <select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black">
+              <label className="mb-2 block text-sm font-medium text-slate-700">Method</label>
+              <select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
                 <option value="mpesa">M-Pesa</option>
                 <option value="cash">Cash</option>
                 <option value="bank_transfer">Bank Transfer</option>
               </select>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Reference</label>
-              <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. M-Pesa code" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+              <label className="mb-2 block text-sm font-medium text-slate-700">Reference</label>
+              <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. M-Pesa code" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
             </div>
           </div>
         )}
         <div className="mt-6 flex gap-3">
-          <button onClick={recordPayment} className="rounded-lg bg-black px-5 py-3 font-medium text-white hover:bg-gray-800">Save Payment</button>
-          <button onClick={() => setShowForm(false)} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={recordPayment} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800">Save Payment</button>
+          <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
         </div>
       </div>
     )}
 
     <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-4">
       <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <p className="text-sm text-gray-500">Rent Expected</p>
+        <p className="text-sm text-slate-500">Rent Expected</p>
         <p className="mt-2 text-3xl font-bold">KSh {rentExpected.toLocaleString()}</p>
-        <p className="mt-1 text-sm text-gray-400">{period}</p>
+        <p className="mt-1 text-sm text-slate-400">{period}</p>
+      </div>
+      <div className="rounded-xl border bg-gradient-to-br from-green-600 to-green-700 p-6 shadow-sm text-white">
+        <p className="text-sm text-green-100">Rent Collected</p>
+        <p className="mt-2 text-3xl font-bold">KSh {rentCollected.toLocaleString()}</p>
+        <p className="mt-1 text-sm text-green-100">{paidTenants} tenant{paidTenants === 1 ? "" : "s"} fully paid</p>
+      </div>
+      <div className="rounded-xl border bg-gradient-to-br from-red-500 to-red-600 p-6 shadow-sm text-white">
+        <p className="text-sm text-red-100">Outstanding</p>
+        <p className="mt-2 text-3xl font-bold">KSh {outstanding.toLocaleString()}</p>
+        <p className="mt-1 text-sm text-red-100">{unpaidTenants} unpaid</p>
       </div>
       <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <p className="text-sm text-gray-500">Rent Collected</p>
-        <p className="mt-2 text-3xl font-bold text-green-700">KSh {rentCollected.toLocaleString()}</p>
-        <p className="mt-1 text-sm text-gray-400">{paidTenants} tenant{paidTenants === 1 ? "" : "s"} fully paid</p>
-      </div>
-      <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <p className="text-sm text-gray-500">Outstanding</p>
-        <p className="mt-2 text-3xl font-bold text-red-600">KSh {outstanding.toLocaleString()}</p>
-        <p className="mt-1 text-sm text-gray-400">{unpaidTenants} unpaid</p>
-      </div>
-      <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <p className="text-sm text-gray-500">Payments Logged</p>
+        <p className="text-sm text-slate-500">Payments Logged</p>
         <p className="mt-2 text-3xl font-bold">{payments.length}</p>
-        <p className="mt-1 text-sm text-gray-400">All recorded payments</p>
+        <p className="mt-1 text-sm text-slate-400">All recorded payments</p>
       </div>
     </div>
 
     <div className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
       <div className="border-b px-6 py-5">
         <h3 className="text-xl font-semibold">Rent Status — {period}</h3>
-        <p className="mt-1 text-sm text-gray-500">Current rent position for each active tenant.</p>
+        <p className="mt-1 text-sm text-slate-500">Current rent position for each active tenant.</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50">
+          <thead className="bg-slate-50">
             <tr>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Tenant</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Property</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Unit</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Billing Period</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Expected</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Paid</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Balance</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Status</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Reminder</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Tenant</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Property</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Unit</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Billing Period</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Expected</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Paid</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Balance</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Status</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Reminder</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="px-6 py-10 text-center text-gray-500">Loading payment information...</td></tr>
+              <tr><td colSpan={9} className="px-6 py-10 text-center text-slate-500">Loading payment information...</td></tr>
             ) : tenantSummaries.length === 0 ? (
-              <tr><td colSpan={9} className="px-6 py-10 text-center text-gray-500">No active tenants have been added yet.</td></tr>
+              <tr><td colSpan={9} className="px-6 py-10 text-center text-slate-500">No active tenants have been added yet.</td></tr>
             ) : (
               tenantSummaries.map((item) => (
                 <tr key={item.tenant.id} className="border-t">
@@ -288,7 +292,7 @@ return (
                   <td className="whitespace-nowrap px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + statusClasses(item.status)}>{item.status}</span></td>
                   <td className="whitespace-nowrap px-6 py-4">
                     {item.status !== "Paid" && (
-                      <button onClick={() => sendReminder(item)} disabled={sendingId === item.tenant.id} className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                      <button onClick={() => sendReminder(item)} disabled={sendingId === item.tenant.id} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50">
                         {sendingId === item.tenant.id ? "Sending..." : "Send Reminder"}
                       </button>
                     )}
@@ -304,27 +308,27 @@ return (
     <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
       <div className="border-b px-6 py-5">
         <h3 className="text-xl font-semibold">Payment History</h3>
-        <p className="mt-1 text-sm text-gray-500">All payments recorded for your tenants.</p>
+        <p className="mt-1 text-sm text-slate-500">All payments recorded for your tenants.</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50">
+          <thead className="bg-slate-50">
             <tr>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Tenant</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Unit</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Amount</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Period</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Method</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Reference</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Date</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-gray-600">Status</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Tenant</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Unit</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Amount</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Period</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Method</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Reference</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Date</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Status</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="px-6 py-10 text-center text-gray-500">Loading payments...</td></tr>
+              <tr><td colSpan={8} className="px-6 py-10 text-center text-slate-500">Loading payments...</td></tr>
             ) : payments.length === 0 ? (
-              <tr><td colSpan={8} className="px-6 py-10 text-center text-gray-500">No payments have been recorded yet.</td></tr>
+              <tr><td colSpan={8} className="px-6 py-10 text-center text-slate-500">No payments have been recorded yet.</td></tr>
             ) : (
               payments.map((payment) => (
                 <tr key={payment.id} className="border-t">
@@ -346,7 +350,7 @@ return (
   </section>
 
   <footer className="mt-10 border-t bg-white">
-    <div className="mx-auto max-w-7xl px-6 py-6 text-sm text-gray-500">© 2026 Managika Homes. Property management made simple.</div>
+    <div className="mx-auto max-w-7xl px-6 py-6 text-sm text-slate-500">© 2026 Managika Homes. Property management made simple.</div>
   </footer>
 </main>
 
