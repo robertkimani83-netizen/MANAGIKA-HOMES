@@ -12,7 +12,7 @@ return (
     </div>
 
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center py-16 text-center">
-      <div className="rounded-3xl bg-white/80 px-6 py-10 shadow-lg backdrop-blur-sm sm:px-12 sm:py-14">
+      <div className="rounded-3xl bg-white px-6 py-10 shadow-2xl sm:px-12 sm:py-14">
         <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/60 bg-amber-100 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-amber-800">
           Property management, reimagined
         </span>
