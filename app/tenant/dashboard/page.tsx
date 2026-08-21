@@ -163,6 +163,14 @@ return (
             {payingBalance ? "Starting..." : "Pay with M-Pesa"}
           </button>
         )}
+        {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.manual_mpesa_enabled && (
+          <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-left text-sm">
+            <p className="font-semibold text-gray-700">Pay via M-Pesa:</p>
+            <p className="text-gray-600">{paymentInfo.manual_mpesa_type === "till" ? "Till Number" : "Phone Number"}: {paymentInfo.manual_mpesa_number}</p>
+            {paymentInfo.manual_mpesa_name && <p className="text-gray-600">{paymentInfo.manual_mpesa_name}</p>}
+            <p className="mt-1 text-xs text-gray-500">After paying, let your landlord know so they can mark it paid.</p>
+          </div>
+        )}
         {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.bank_enabled && (
           <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-left text-sm">
             <p className="font-semibold text-gray-700">Pay by bank transfer:</p>
@@ -173,7 +181,7 @@ return (
             <p className="mt-1 text-xs text-gray-500">After transferring, let your landlord know so they can mark it paid.</p>
           </div>
         )}
-        {currentInvoice?.status !== "paid" && tenant.units && !paymentInfo.mpesa_enabled && !paymentInfo.bank_enabled && (
+        {currentInvoice?.status !== "paid" && tenant.units && !paymentInfo.mpesa_enabled && !paymentInfo.manual_mpesa_enabled && !paymentInfo.bank_enabled && (
           <p className="mt-4 text-sm text-gray-500">Online payment isn't set up yet - please contact your landlord directly to pay rent.</p>
         )}
       </div>

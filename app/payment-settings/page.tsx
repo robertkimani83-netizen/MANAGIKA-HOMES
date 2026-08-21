@@ -21,6 +21,11 @@ const [consumerSecretSet, setConsumerSecretSet] = useState(false);
 const [passkey, setPasskey] = useState("");
 const [passkeySet, setPasskeySet] = useState(false);
 
+const [manualMpesaEnabled, setManualMpesaEnabled] = useState(false);
+const [manualMpesaType, setManualMpesaType] = useState("till");
+const [manualMpesaNumber, setManualMpesaNumber] = useState("");
+const [manualMpesaName, setManualMpesaName] = useState("");
+
 const [bankEnabled, setBankEnabled] = useState(false);
 const [bankName, setBankName] = useState("");
 const [bankAccountName, setBankAccountName] = useState("");
@@ -45,6 +50,10 @@ async function init() {
   setConsumerKeySet(!!settings.mpesa_consumer_key_set);
   setConsumerSecretSet(!!settings.mpesa_consumer_secret_set);
   setPasskeySet(!!settings.mpesa_passkey_set);
+  setManualMpesaEnabled(!!settings.manual_mpesa_enabled);
+  setManualMpesaType(settings.manual_mpesa_type || "till");
+  setManualMpesaNumber(settings.manual_mpesa_number || "");
+  setManualMpesaName(settings.manual_mpesa_name || "");
   setBankEnabled(!!settings.bank_enabled);
   setBankName(settings.bank_name || "");
   setBankAccountName(settings.bank_account_name || "");
@@ -70,6 +79,10 @@ try {
       mpesa_consumer_key: consumerKey,
       mpesa_consumer_secret: consumerSecret,
       mpesa_passkey: passkey,
+      manual_mpesa_enabled: manualMpesaEnabled,
+      manual_mpesa_type: manualMpesaType,
+      manual_mpesa_number: manualMpesaNumber,
+      manual_mpesa_name: manualMpesaName,
       bank_enabled: bankEnabled,
       bank_name: bankName,
       bank_account_name: bankAccountName,
@@ -115,7 +128,7 @@ return (
       <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 text-3xl">💳</span>
       <div>
         <h2 className="text-3xl font-bold text-slate-900">Payment Settings</h2>
-        <p className="mt-1 text-slate-500">Connect your own M-Pesa Paybill/Till or bank account so tenant payments come straight to you.</p>
+        <p className="mt-1 text-slate-500">Connect your own automated M-Pesa Paybill/Till, manual M-Pesa, or bank account so tenant payments come straight to you.</p>
       </div>
     </div>
 
@@ -154,6 +167,34 @@ return (
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">Passkey {passkeySet && <span className="text-emerald-600">(saved)</span>}</label>
             <input type="password" value={passkey} onChange={(e) => setPasskey(e.target.value)} placeholder={passkeySet ? "Leave blank to keep current" : "Paste your Passkey"} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500" />
+          </div>
+        </div>
+      )}
+    </div>
+
+    <div className="mb-6 rounded-xl border bg-white p-6 shadow-sm">
+      <label className="flex items-center gap-3">
+        <input type="checkbox" checked={manualMpesaEnabled} onChange={(e) => setManualMpesaEnabled(e.target.checked)} className="h-5 w-5" />
+        <span className="text-lg font-semibold text-slate-900">Accept M-Pesa manually (no Paybill needed)</span>
+      </label>
+      <p className="mt-1 text-sm text-slate-500">Tenants send money the normal way to your Till Number or phone number - you mark invoices paid yourself once you see it land. No Safaricom application required.</p>
+
+      {manualMpesaEnabled && (
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">Type</label>
+            <select value={manualMpesaType} onChange={(e) => setManualMpesaType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500">
+              <option value="till">Till Number</option>
+              <option value="phone">Phone Number</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">{manualMpesaType === "till" ? "Till Number" : "Phone Number"}</label>
+            <input type="text" value={manualMpesaNumber} onChange={(e) => setManualMpesaNumber(e.target.value)} placeholder={manualMpesaType === "till" ? "e.g. 123456" : "e.g. 0712345678"} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500" />
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">Account/Recipient Name</label>
+            <input type="text" value={manualMpesaName} onChange={(e) => setManualMpesaName(e.target.value)} placeholder="Name tenants will see" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500" />
           </div>
         </div>
       )}

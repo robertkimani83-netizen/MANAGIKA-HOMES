@@ -22,16 +22,20 @@ if (tenantError || !tenant || !tenant.landlord_id) {
 
 const { data: settings } = await supabaseAdmin
   .from("landlord_payment_settings")
-  .select("mpesa_enabled, bank_enabled, bank_name, bank_account_name, bank_account_number, bank_branch")
+  .select("mpesa_enabled, manual_mpesa_enabled, manual_mpesa_type, manual_mpesa_number, manual_mpesa_name, bank_enabled, bank_name, bank_account_name, bank_account_number, bank_branch")
   .eq("landlord_id", tenant.landlord_id)
   .maybeSingle();
 
 if (!settings) {
-  return NextResponse.json({ mpesa_enabled: false, bank_enabled: false });
+  return NextResponse.json({ mpesa_enabled: false, manual_mpesa_enabled: false, bank_enabled: false });
 }
 
 return NextResponse.json({
   mpesa_enabled: !!settings.mpesa_enabled,
+  manual_mpesa_enabled: !!settings.manual_mpesa_enabled,
+  manual_mpesa_type: settings.manual_mpesa_type || "till",
+  manual_mpesa_number: settings.manual_mpesa_number || "",
+  manual_mpesa_name: settings.manual_mpesa_name || "",
   bank_enabled: !!settings.bank_enabled,
   bank_name: settings.bank_name || "",
   bank_account_name: settings.bank_account_name || "",
