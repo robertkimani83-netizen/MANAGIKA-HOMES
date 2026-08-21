@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseAdmin = createClient(
-process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-);
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: Request) {
 try {
@@ -16,6 +11,7 @@ if (!callback) {
 }
 
 const resultCode = callback.ResultCode;
+const checkoutRequestId = callback.CheckoutRequestID;
 const items = callback.CallbackMetadata?.Item || [];
 
 function getValue(name: string) {
@@ -23,39 +19,59 @@ function getValue(name: string) {
   return found ? found.Value : null;
 }
 
+const { data: tracked } = await supabaseAdmin
+  .from("stk_push_requests")
+  .select("id, tenant_id, invoice_id, amount")
+  .eq("checkout_request_id", checkoutRequestId)
+  .maybeSingle();
+
+if (tracked) {
+  await supabaseAdmin.from("stk_push_requests").update({ status: resultCode === 0 ? "completed" : "failed" }).eq("id", tracked.id);
+}
+
 if (resultCode === 0) {
-  const amount = getValue("Amount");
-  const phoneNumber = getValue("PhoneNumber");
+  const amount = getValue("Amount") || tracked?.amount;
   const mpesaReceiptNumber = getValue("MpesaReceiptNumber");
+  const phoneNumber = getValue("PhoneNumber");
 
-  const phoneStr = String(phoneNumber);
-  const localFormat = phoneStr.startsWith("254") ? "0" + phoneStr.slice(3) : phoneStr;
+  let tenantId = tracked?.tenant_id || null;
+  let unitId: string | null = null;
 
-  const { data: tenant } = await supabaseAdmin
-    .from("tenants")
-    .select("id, unit_id")
-    .or("phone_number.eq." + phoneStr + ",phone_number.eq." + localFormat)
-    .maybeSingle();
+  if (tenantId) {
+    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("unit_id").eq("id", tenantId).maybeSingle();
+    unitId = tenantRow?.unit_id || null;
+  } else {
+    const phoneStr = String(phoneNumber);
+    const localFormat = phoneStr.startsWith("254") ? "0" + phoneStr.slice(3) : phoneStr;
+    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("id, unit_id").or("phone_number.eq." + phoneStr + ",phone_number.eq." + localFormat).maybeSingle();
+    tenantId = tenantRow?.id || null;
+    unitId = tenantRow?.unit_id || null;
+  }
 
-  if (tenant) {
+  if (tenantId) {
     const d = new Date();
     const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const period = names[d.getMonth()] + " " + d.getFullYear();
 
-    let { data: invoice } = await supabaseAdmin
-      .from("invoices")
-      .select("id, total_due")
-      .eq("tenant_id", tenant.id)
-      .eq("billing_period", period)
-      .maybeSingle();
+    let invoice: any = null;
+
+    if (tracked?.invoice_id) {
+      const { data } = await supabaseAdmin.from("invoices").select("id, total_due").eq("id", tracked.invoice_id).maybeSingle();
+      invoice = data;
+    }
+
+    if (!invoice) {
+      const { data: existing } = await supabaseAdmin.from("invoices").select("id, total_due").eq("tenant_id", tenantId).eq("billing_period", period).maybeSingle();
+      invoice = existing;
+    }
 
     if (!invoice) {
       const { data: newInvoice } = await supabaseAdmin
         .from("invoices")
         .insert({
           invoice_number: "INV-" + Date.now(),
-          tenant_id: tenant.id,
-          unit_id: tenant.unit_id,
+          tenant_id: tenantId,
+          unit_id: unitId,
           billing_period: period,
           rent_amount: amount,
           total_due: amount,

@@ -86,6 +86,8 @@ const res = await fetch("/api/mpesa-stk-push", {
 method: "POST",
 headers: { "Content-Type": "application/json" },
 body: JSON.stringify({
+tenantId: tenant.id,
+invoiceId: currentInvoice ? currentInvoice.id : null,
 phoneNumber: toKenyanFormat(tenant.phone_number),
 amount: Number(tenant.units.base_rent),
 accountReference: tenant.full_name,
