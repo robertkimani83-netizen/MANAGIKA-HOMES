@@ -41,6 +41,7 @@ const africastalking = AfricasTalking({
   username: process.env.AFRICASTALKING_USERNAME as string,
 });
 const sms = africastalking.SMS;
+const senderId = process.env.AFRICASTALKING_SENDER_ID;
 
 let remindersSent = 0;
 let invoicesCreated = 0;
@@ -112,7 +113,7 @@ for (const tenant of (tenants || []) as any[]) {
   const message = "Hi " + tenant.full_name + ", your rent of KSh " + balance.toLocaleString() + " for " + period + " (Unit " + unit.unit_number + ") is now due. Kindly pay by the 5th of the month to avoid penalties. - Managika Homes";
 
   try {
-    await sms.send({ to: [toKenyanFormat(tenant.phone_number)], message: message });
+    await sms.send({ to: [toKenyanFormat(tenant.phone_number)], message: message, ...(senderId ? { from: senderId } : {}) });
     remindersSent++;
   } catch (smsError: any) {
     errors.push(tenant.full_name + ": SMS failed - " + (smsError.message || "unknown error"));

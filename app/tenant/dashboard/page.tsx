@@ -10,14 +10,6 @@ const names = ["January", "February", "March", "April", "May", "June", "July", "
 return names[d.getMonth()] + " " + d.getFullYear();
 }
 
-function toKenyanFormat(phone: string) {
-const digits = phone.replace(/\D/g, "");
-if (digits.startsWith("254")) return digits;
-if (digits.startsWith("0")) return "254" + digits.slice(1);
-if (digits.startsWith("7") || digits.startsWith("1")) return "254" + digits;
-return digits;
-}
-
 export default function TenantDashboard() {
 const router = useRouter();
 const [loading, setLoading] = useState(true);
@@ -34,6 +26,7 @@ const [urgency, setUrgency] = useState("normal");
 const [complaintText, setComplaintText] = useState("");
 const [payingBalance, setPayingBalance] = useState(false);
 const [paymentInfo, setPaymentInfo] = useState<any>({ mpesa_enabled: false, bank_enabled: false });
+const [authToken, setAuthToken] = useState("");
 
 useEffect(() => {
 async function init() {
@@ -55,6 +48,7 @@ if (!data.user || !data.user.email) { router.push("/tenant/login"); return; }
 
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token || "";
+  setAuthToken(token);
   try {
     const infoRes = await fetch("/api/tenant-payment-info", { headers: { Authorization: "Bearer " + token } });
     const info = await infoRes.json();
@@ -91,17 +85,14 @@ setComplaints(complaintRows || []);
 
 async function payWithMpesa() {
 if (!tenant || !tenant.phone_number || !tenant.units) { alert("Missing phone number or unit information."); return; }
+if (!authToken) { alert("Your session expired - please refresh and log in again."); return; }
 setPayingBalance(true);
 try {
 const res = await fetch("/api/mpesa-stk-push", {
 method: "POST",
-headers: { "Content-Type": "application/json" },
+headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
 body: JSON.stringify({
-tenantId: tenant.id,
 invoiceId: currentInvoice ? currentInvoice.id : null,
-phoneNumber: toKenyanFormat(tenant.phone_number),
-amount: Number(tenant.units.base_rent),
-accountReference: tenant.full_name,
 }),
 });
 const result = await res.json();

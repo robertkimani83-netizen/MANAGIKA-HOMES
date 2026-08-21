@@ -3,6 +3,18 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: Request) {
 try {
+// Reject any call that doesn't carry our own secret token in the URL.
+// Safaricom calls this exact URL (with the token baked in) - a real payment
+// confirmation can only ever arrive with the correct token attached. Anyone
+// else guessing at this endpoint (without the token) is rejected here,
+// before touching any tenant/invoice/payment data.
+const { searchParams } = new URL(request.url);
+const suppliedToken = searchParams.get("token") || "";
+const expectedToken = process.env.MPESA_CALLBACK_SECRET || "";
+if (!expectedToken || suppliedToken !== expectedToken) {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+
 const body = await request.json();
 const callback = body?.Body?.stkCallback;
 
@@ -84,12 +96,16 @@ if (resultCode === 0) {
     }
 
     if (invoice) {
-      await supabaseAdmin.from("payments").insert({
-        invoice_id: invoice.id,
-        amount_paid: amount,
-        payment_method: "mpesa",
-        transaction_reference: mpesaReceiptNumber,
-      });
+      // Guard against the same M-Pesa receipt being recorded twice if Safaricom retries the callback.
+      const { data: dup } = await supabaseAdmin.from("payments").select("id").eq("transaction_reference", mpesaReceiptNumber).maybeSingle();
+      if (!dup) {
+        await supabaseAdmin.from("payments").insert({
+          invoice_id: invoice.id,
+          amount_paid: amount,
+          payment_method: "mpesa",
+          transaction_reference: mpesaReceiptNumber,
+        });
+      }
 
       const { data: allPayments } = await supabaseAdmin
         .from("payments")

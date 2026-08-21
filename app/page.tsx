@@ -28,6 +28,8 @@ return (
           <a href="/landlord/login" className="rounded-lg bg-amber-500 px-8 py-4 text-base font-bold text-slate-900 shadow-lg shadow-amber-500/20 transition hover:-translate-y-0.5 hover:bg-amber-400 hover:shadow-amber-500/30">I'm a Landlord</a>
           <a href="/tenant/login" className="rounded-lg border-2 border-slate-400 bg-white px-8 py-4 text-base font-bold text-slate-900 transition hover:-translate-y-0.5 hover:bg-slate-50">I'm a Tenant</a>
         </div>
+
+        <a href="/for-landlords" className="mt-6 inline-block text-sm font-bold text-amber-700 underline underline-offset-4 hover:text-amber-800">New landlord? See how Managika Homes works &amp; pricing →</a>
       </div>
     </div>
 

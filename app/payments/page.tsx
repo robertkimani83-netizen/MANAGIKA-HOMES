@@ -29,14 +29,6 @@ const names = ["January", "February", "March", "April", "May", "June", "July", "
 return names[d.getMonth()] + " " + d.getFullYear();
 }
 
-function toKenyanFormat(phone: string) {
-const digits = phone.replace(/\D/g, "");
-if (digits.startsWith("254")) return "+" + digits;
-if (digits.startsWith("0")) return "+254" + digits.slice(1);
-if (digits.startsWith("7") || digits.startsWith("1")) return "+254" + digits;
-return "+" + digits;
-}
-
 export default function PaymentsPage() {
 const router = useRouter();
 const [landlordId, setLandlordId] = useState<string | null>(null);
@@ -125,10 +117,12 @@ if (!summary.tenant.phone_number) { alert("This tenant has no phone number on fi
 setSendingId(summary.tenant.id);
 try {
 const message = "Hi " + summary.tenant.full_name + ", this is a reminder from Managika Homes that your rent balance of KSh " + summary.balance.toLocaleString() + " for " + period + " is due. Please make payment at your earliest convenience.";
+const { data: sessionData } = await supabase.auth.getSession();
+const token = sessionData.session?.access_token || "";
 const res = await fetch("/api/send-reminder", {
 method: "POST",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ phoneNumber: toKenyanFormat(summary.tenant.phone_number), message: message }),
+headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+body: JSON.stringify({ tenantId: summary.tenant.id, message: message }),
 });
 const result = await res.json();
 if (!res.ok) { alert("Failed to send reminder: " + (result.error || "unknown error")); return; }
