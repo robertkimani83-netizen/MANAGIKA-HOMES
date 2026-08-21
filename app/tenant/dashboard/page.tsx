@@ -124,7 +124,10 @@ return (
 <h1 className="text-2xl font-bold text-gray-900">MANAGIKA HOMES</h1>
 <p className="text-sm text-gray-500">Tenant Portal</p>
 </div>
+<div className="flex items-center gap-3">
+<a href="/tenant/ai-assistant" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">🤖 AI Assistant</a>
 <button onClick={signOut} className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">Sign Out</button>
+</div>
 </div>
 </header>
 
