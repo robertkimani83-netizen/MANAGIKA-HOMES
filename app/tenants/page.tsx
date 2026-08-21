@@ -86,71 +86,75 @@ const activeTenants = tenants.filter((tenant) => tenant.status === "active").len
 const totalRent = tenants.reduce((sum, tenant) => sum + (Number(tenant.units?.base_rent) || 0), 0);
 
 return (
-<main className="min-h-screen bg-gray-100">
+<main className="min-h-screen bg-slate-50">
+<div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
 <header className="bg-white border-b">
 <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
 <div>
-<h1 className="text-2xl font-bold text-gray-900">MANAGIKA HOMES</h1>
-<p className="text-sm text-gray-500">Property Management Made Simple</p>
+<h1 className="text-2xl font-bold text-slate-900">MANAGIKA HOMES</h1>
+<p className="text-sm text-slate-500">Property Management Made Simple</p>
 </div>
-<a href="/landlord/dashboard" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">Dashboard</a>
+<a href="/landlord/dashboard" className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700">Dashboard</a>
 </div>
 </header>
 
   <section className="max-w-7xl mx-auto px-6 py-8">
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-      <div>
-        <h2 className="text-3xl font-bold text-gray-900">Tenants</h2>
-        <p className="text-gray-500 mt-1">Manage tenants, assignments and rental information.</p>
+      <div className="flex items-center gap-4">
+        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 text-3xl">👥</span>
+        <div>
+          <h2 className="text-3xl font-bold text-slate-900">Tenants</h2>
+          <p className="text-slate-500 mt-1">Manage tenants, assignments and rental information.</p>
+        </div>
       </div>
-      <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-black text-white font-medium">+ Add Tenant</button>
+      <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Tenant</button>
     </div>
 
     {showForm && (
       <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
-        <h3 className="mb-5 text-xl font-bold text-gray-900">Add New Tenant</h3>
+        <h3 className="mb-5 text-xl font-bold text-slate-900">Add New Tenant</h3>
         <div className="grid gap-5 md:grid-cols-2">
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Full Name</label>
-            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. John Kamau" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            <label className="mb-2 block text-sm font-medium text-slate-700">Full Name</label>
+            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. John Kamau" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Phone Number</label>
-            <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            <label className="mb-2 block text-sm font-medium text-slate-700">Phone Number</label>
+            <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Email (optional)</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. john@email.com" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            <label className="mb-2 block text-sm font-medium text-slate-700">Email (optional)</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. john@email.com" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Assign to Unit</label>
-            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black">
+            <label className="mb-2 block text-sm font-medium text-slate-700">Assign to Unit</label>
+            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
               <option value="">No unit yet</option>
               {vacantUnits.map((unit) => (
                 <option key={unit.id} value={unit.id}>{unit.properties?.property_name} - {unit.unit_number} (KSh {Number(unit.base_rent).toLocaleString()})</option>
               ))}
             </select>
-            {vacantUnits.length === 0 && (<p className="mt-2 text-sm text-gray-500">No vacant units available. Add units first, or leave unassigned.</p>)}
+            {vacantUnits.length === 0 && (<p className="mt-2 text-sm text-slate-500">No vacant units available. Add units first, or leave unassigned.</p>)}
           </div>
         </div>
         <div className="mt-6 flex gap-3">
-          <button onClick={addTenant} className="rounded-lg bg-black px-5 py-3 font-medium text-white hover:bg-gray-800">Save Tenant</button>
-          <button onClick={() => setShowForm(false)} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={addTenant} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800">Save Tenant</button>
+          <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
         </div>
       </div>
     )}
 
     <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-      <div className="bg-white rounded-xl p-6 border shadow-sm">
-        <p className="text-sm text-gray-500">Total Tenants</p>
+      <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 border shadow-sm text-white">
+        <p className="text-sm text-slate-300">Total Tenants</p>
         <p className="text-3xl font-bold mt-2">{totalTenants}</p>
       </div>
       <div className="bg-white rounded-xl p-6 border shadow-sm">
-        <p className="text-sm text-gray-500">Active Tenants</p>
+        <p className="text-sm text-slate-500">Active Tenants</p>
         <p className="text-3xl font-bold mt-2">{activeTenants}</p>
       </div>
       <div className="bg-white rounded-xl p-6 border shadow-sm">
-        <p className="text-sm text-gray-500">Total Monthly Rent</p>
+        <p className="text-sm text-slate-500">Total Monthly Rent</p>
         <p className="text-3xl font-bold mt-2">KSh {totalRent.toLocaleString()}</p>
       </div>
     </div>
@@ -159,25 +163,25 @@ return (
       <div className="px-6 py-5 border-b"><h3 className="text-xl font-semibold">Tenant Information</h3></div>
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50">
+          <thead className="bg-slate-50">
             <tr>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Tenant</th>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Phone</th>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Property</th>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Unit</th>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Rent</th>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600"></th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Tenant</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Phone</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Property</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Unit</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Rent</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600"></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-6 py-10 text-center text-gray-500">Loading tenants...</td></tr>
+              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">Loading tenants...</td></tr>
             ) : tenants.length === 0 ? (
-              <tr><td colSpan={6} className="px-6 py-10 text-center text-gray-500">No tenants have been added yet.</td></tr>
+              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">No tenants have been added yet.</td></tr>
             ) : (
               tenants.map((tenant) => (
                 <tr key={tenant.id} className="border-t">
-                  <td className="px-6 py-4"><a href={"/tenants/" + tenant.id} className="font-medium text-blue-600 hover:underline">{tenant.full_name}</a></td>
+                  <td className="px-6 py-4"><a href={"/tenants/" + tenant.id} className="font-medium text-amber-600 hover:underline">{tenant.full_name}</a></td>
                   <td className="px-6 py-4">{tenant.phone_number}</td>
                   <td className="px-6 py-4">{tenant.units?.properties?.property_name || "—"}</td>
                   <td className="px-6 py-4">{tenant.units?.unit_number || "Unassigned"}</td>
@@ -193,7 +197,7 @@ return (
   </section>
 
   <footer className="border-t bg-white mt-10">
-    <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-gray-500">© 2026 Managika Homes. Property management made simple.</div>
+    <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-slate-500">© 2026 Managika Homes. Property management made simple.</div>
   </footer>
 </main>
 
