@@ -188,7 +188,7 @@ return (
 
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 className="text-xl font-bold">Quick Navigation</h3>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-8">
         <a href="/properties" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🏠 Properties</a>
         <a href="/units" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🚪 Units</a>
         <a href="/tenants" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">👥 Tenants</a>
@@ -196,6 +196,7 @@ return (
         <a href="/maintenance" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🔧 Maintenance</a>
         <a href="/complaints" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">📢 Complaints{complaintCount > 0 ? " (" + complaintCount + ")" : ""}</a>
         <a href="/ai-assistant" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🤖 AI Assistant</a>
+        <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">💳 Payment Settings</a>
       </div>
     </div>
   </section>
