@@ -46,7 +46,7 @@ resolved: "bg-green-100 text-green-700",
 const openCount = complaints.filter((c) => c.status !== "resolved").length;
 
 return (
-<main className="min-h-screen bg-slate-50">
+<main className="min-h-screen city-skyline-page">
 <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
 <header className="bg-white border-b">
 <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
