@@ -86,7 +86,7 @@ const activeTenants = tenants.filter((tenant) => tenant.status === "active").len
 const totalRent = tenants.reduce((sum, tenant) => sum + (Number(tenant.units?.base_rent) || 0), 0);
 
 return (
-<main className="min-h-screen bg-slate-50">
+<main className="min-h-screen city-skyline-page">
 <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
 <header className="bg-white border-b">
 <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
