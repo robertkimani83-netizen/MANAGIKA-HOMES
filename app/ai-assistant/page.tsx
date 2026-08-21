@@ -47,6 +47,7 @@ const activeTenants = (tenants || []).filter((t) => t.status === "active");
 const tenantIds = activeTenants.map((t) => t.id);
 
 const unpaidLines: string[] = [];
+const paidLines: string[] = [];
 if (tenantIds.length > 0) {
   const { data: invoices } = await supabase.from("invoices").select("id, tenant_id, total_due, billing_period").in("tenant_id", tenantIds).eq("billing_period", period);
   for (const tenant of activeTenants) {
@@ -55,7 +56,11 @@ if (tenantIds.length > 0) {
     const { data: payments } = await supabase.from("payments").select("amount_paid").eq("invoice_id", invoice.id);
     const paid = (payments || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
     const balance = Number(invoice.total_due) - paid;
-    if (balance > 0) unpaidLines.push(tenant.full_name + " owes KSh " + balance.toLocaleString() + " for " + period);
+    if (balance > 0) {
+      unpaidLines.push(tenant.full_name + " owes KSh " + balance.toLocaleString() + " for " + period);
+    } else {
+      paidLines.push(tenant.full_name);
+    }
   }
 }
 
@@ -78,6 +83,7 @@ const summary = [
   "Total units: " + units.length + " (occupied: " + occupied + ", vacant: " + vacant + ")",
   "Active tenants: " + activeTenants.length,
   "Unpaid tenants this period: " + (unpaidLines.length > 0 ? unpaidLines.join("; ") : "none - everyone is paid up"),
+  "Paid in full this period: " + (paidLines.length > 0 ? paidLines.join(", ") : "none yet"),
   "Open maintenance requests: " + (maintenanceLines.length > 0 ? maintenanceLines.join("; ") : "none"),
 ].join("\n");
 
@@ -141,7 +147,7 @@ return (
           <div className="flex flex-col gap-4">
             {messages.map((m, i) => (
               <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                <div className={m.role === "user" ? "max-w-[80%] rounded-2xl bg-slate-900 px-4 py-3 text-white" : "max-w-[80%] rounded-2xl bg-indigo-50 px-4 py-3 text-slate-800"}>
+                <div className={m.role === "user" ? "max-w-[80%] whitespace-pre-line rounded-2xl bg-slate-900 px-4 py-3 text-white" : "max-w-[80%] whitespace-pre-line rounded-2xl bg-indigo-50 px-4 py-3 text-slate-800"}>
                   {m.text}
                 </div>
               </div>

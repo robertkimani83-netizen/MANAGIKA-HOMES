@@ -9,7 +9,7 @@ if (!question) {
   return NextResponse.json({ error: "Missing question" }, { status: 400 });
 }
 
-const prompt = "You are a helpful assistant inside Managika Homes, a property management app used by landlords and tenants in Kenya. Answer the question using ONLY the data given below. Be concise, friendly, and practical. If the data does not contain the answer, say so honestly instead of guessing.\n\nDATA:\n" + (context || "No data provided.") + "\n\nQUESTION:\n" + question;
+const prompt = "You are a helpful assistant inside Managika Homes, a property management app used by landlords and tenants in Kenya. Answer the question using ONLY the data given below. Be concise, friendly, and practical. If the data does not contain the answer, say so honestly instead of guessing. Do not use markdown formatting such as asterisks, bold, or bullet symbols. When your answer includes more than one item (such as tenants, balances, or requests), put each item on its own line by itself instead of running them together in one sentence.\n\nDATA:\n" + (context || "No data provided.") + "\n\nQUESTION:\n" + question;
 
 const response = await fetch(
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key=" + process.env.GEMINI_API_KEY,

@@ -95,7 +95,7 @@ return (
           <div className="flex flex-col gap-4">
             {messages.map((m, i) => (
               <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                <div className={m.role === "user" ? "max-w-[80%] rounded-2xl bg-black px-4 py-3 text-white" : "max-w-[80%] rounded-2xl bg-gray-100 px-4 py-3 text-gray-800"}>
+                <div className={m.role === "user" ? "max-w-[80%] whitespace-pre-line rounded-2xl bg-black px-4 py-3 text-white" : "max-w-[80%] whitespace-pre-line rounded-2xl bg-gray-100 px-4 py-3 text-gray-800"}>
                   {m.text}
                 </div>
               </div>
