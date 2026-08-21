@@ -19,8 +19,9 @@ async function init() {
   const { data } = await supabase.auth.getUser();
   if (!data.user || !data.user.email) { router.push("/tenant/login"); return; }
 
-  const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, unit_id, units(unit_number, base_rent, properties(property_name))").eq("email", data.user.email).maybeSingle();
-  if (!tenantRow) { router.push("/tenant/login"); return; }
+  const { data: tenantRowData } = await supabase.from("tenants").select("id, full_name, unit_id, units(unit_number, base_rent, properties(property_name))").eq("email", data.user.email).maybeSingle();
+  if (!tenantRowData) { router.push("/tenant/login"); return; }
+  const tenantRow: any = tenantRowData;
 
   const { data: invoices } = await supabase.from("invoices").select("billing_period, total_due, status, due_date").eq("tenant_id", tenantRow.id).order("due_date", { ascending: false });
   const { data: maintenance } = await supabase.from("maintenance_requests").select("title, urgency, status").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
