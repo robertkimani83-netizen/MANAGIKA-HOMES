@@ -33,6 +33,7 @@ const [description, setDescription] = useState("");
 const [urgency, setUrgency] = useState("normal");
 const [complaintText, setComplaintText] = useState("");
 const [payingBalance, setPayingBalance] = useState(false);
+const [paymentInfo, setPaymentInfo] = useState<any>({ mpesa_enabled: false, bank_enabled: false });
 
 useEffect(() => {
 async function init() {
@@ -51,6 +52,16 @@ if (!data.user || !data.user.email) { router.push("/tenant/login"); return; }
 
   const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
   setComplaints(complaintRows || []);
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token || "";
+  try {
+    const infoRes = await fetch("/api/tenant-payment-info", { headers: { Authorization: "Bearer " + token } });
+    const info = await infoRes.json();
+    setPaymentInfo(info);
+  } catch (e) {
+    setPaymentInfo({ mpesa_enabled: false, bank_enabled: false });
+  }
 
   setLoading(false);
 }
@@ -147,10 +158,23 @@ return (
       <div className="bg-white rounded-xl p-6 border shadow-sm">
         <p className="text-sm text-gray-500">{period} Status</p>
         <p className="text-3xl font-bold mt-2 capitalize">{currentInvoice ? currentInvoice.status.replace("_", " ") : "No invoice yet"}</p>
-        {currentInvoice?.status !== "paid" && tenant.units && (
+        {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.mpesa_enabled && (
           <button onClick={payWithMpesa} disabled={payingBalance} className="mt-4 w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
             {payingBalance ? "Starting..." : "Pay with M-Pesa"}
           </button>
+        )}
+        {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.bank_enabled && (
+          <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-left text-sm">
+            <p className="font-semibold text-gray-700">Pay by bank transfer:</p>
+            <p className="text-gray-600">{paymentInfo.bank_name}</p>
+            <p className="text-gray-600">{paymentInfo.bank_account_name}</p>
+            <p className="text-gray-600">Acc: {paymentInfo.bank_account_number}</p>
+            {paymentInfo.bank_branch && <p className="text-gray-600">Branch: {paymentInfo.bank_branch}</p>}
+            <p className="mt-1 text-xs text-gray-500">After transferring, let your landlord know so they can mark it paid.</p>
+          </div>
+        )}
+        {currentInvoice?.status !== "paid" && tenant.units && !paymentInfo.mpesa_enabled && !paymentInfo.bank_enabled && (
+          <p className="mt-4 text-sm text-gray-500">Online payment isn't set up yet - please contact your landlord directly to pay rent.</p>
         )}
       </div>
       <div className="bg-white rounded-xl p-6 border shadow-sm">
