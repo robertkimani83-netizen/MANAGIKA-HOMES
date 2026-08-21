@@ -7,7 +7,7 @@ return (
     <div className="mx-auto flex w-full max-w-6xl items-center justify-between">
       <div className="rounded-2xl bg-white px-5 py-3 shadow-lg">
         <h1 className="text-2xl font-extrabold tracking-tight text-black">MANAGIKA HOMES</h1>
-        <p className="text-sm font-semibold text-slate-800">Property Management Made Simple</p>
+        <p className="text-sm font-bold text-black">Property Management Made Simple</p>
       </div>
     </div>
 
@@ -22,7 +22,7 @@ return (
           <span className="block bg-gradient-to-r from-amber-500 via-orange-600 to-amber-500 bg-clip-text text-transparent">Meet, Simply.</span>
         </h2>
 
-        <p className="mt-6 max-w-xl text-lg font-medium text-slate-800">One home for your properties, your rent, your maintenance and your peace of mind — whichever side of the door you're on.</p>
+        <p className="mt-6 max-w-xl text-lg font-bold text-black">One home for your properties, your rent, your maintenance and your peace of mind — whichever side of the door you're on.</p>
 
         <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:justify-center">
           <a href="/landlord/login" className="rounded-lg bg-amber-500 px-8 py-4 text-base font-bold text-slate-900 shadow-lg shadow-amber-500/20 transition hover:-translate-y-0.5 hover:bg-amber-400 hover:shadow-amber-500/30">I'm a Landlord</a>
@@ -34,19 +34,19 @@ return (
     <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-4 pt-4 text-center sm:grid-cols-4">
       <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
         <p className="text-2xl">🏠</p>
-        <p className="mt-2 text-sm font-semibold text-slate-800">Properties & Units</p>
+        <p className="mt-2 text-sm font-bold text-black">Properties & Units</p>
       </div>
       <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
         <p className="text-2xl">💰</p>
-        <p className="mt-2 text-sm font-semibold text-slate-800">Rent & Payments</p>
+        <p className="mt-2 text-sm font-bold text-black">Rent & Payments</p>
       </div>
       <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
         <p className="text-2xl">🔧</p>
-        <p className="mt-2 text-sm font-semibold text-slate-800">Maintenance Requests</p>
+        <p className="mt-2 text-sm font-bold text-black">Maintenance Requests</p>
       </div>
       <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
         <p className="text-2xl">👥</p>
-        <p className="mt-2 text-sm font-semibold text-slate-800">Tenant Records</p>
+        <p className="mt-2 text-sm font-bold text-black">Tenant Records</p>
       </div>
     </div>
   </section>
