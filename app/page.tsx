@@ -5,7 +5,7 @@ return (
 <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
 
     <div className="mx-auto flex w-full max-w-6xl items-center justify-between">
-      <div>
+      <div className="rounded-2xl bg-white px-5 py-3 shadow-lg">
         <h1 className="text-2xl font-extrabold tracking-tight text-black">MANAGIKA HOMES</h1>
         <p className="text-sm font-semibold text-slate-800">Property Management Made Simple</p>
       </div>
@@ -31,20 +31,20 @@ return (
       </div>
     </div>
 
-    <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-4 border-t border-slate-900/10 pt-8 text-center sm:grid-cols-4">
-      <div>
+    <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-4 pt-4 text-center sm:grid-cols-4">
+      <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
         <p className="text-2xl">🏠</p>
         <p className="mt-2 text-sm font-semibold text-slate-800">Properties & Units</p>
       </div>
-      <div>
+      <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
         <p className="text-2xl">💰</p>
         <p className="mt-2 text-sm font-semibold text-slate-800">Rent & Payments</p>
       </div>
-      <div>
+      <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
         <p className="text-2xl">🔧</p>
         <p className="mt-2 text-sm font-semibold text-slate-800">Maintenance Requests</p>
       </div>
-      <div>
+      <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
         <p className="text-2xl">👥</p>
         <p className="mt-2 text-sm font-semibold text-slate-800">Tenant Records</p>
       </div>
