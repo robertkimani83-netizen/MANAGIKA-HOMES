@@ -53,13 +53,15 @@ if (tenantIds.length > 0) {
   for (const tenant of activeTenants) {
     const invoice = (invoices || []).find((i) => i.tenant_id === tenant.id);
     if (!invoice) continue;
-    const { data: payments } = await supabase.from("payments").select("amount_paid").eq("invoice_id", invoice.id);
+    const { data: payments } = await supabase.from("payments").select("amount_paid, paid_at").eq("invoice_id", invoice.id);
     const paid = (payments || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
     const balance = Number(invoice.total_due) - paid;
     if (balance > 0) {
       unpaidLines.push(tenant.full_name + " owes KSh " + balance.toLocaleString() + " for " + period);
     } else {
-      paidLines.push(tenant.full_name);
+      const lastPaidAt = (payments || []).reduce((latest: string, p: any) => (p.paid_at && p.paid_at > latest ? p.paid_at : latest), "");
+      const dateStr = lastPaidAt ? new Date(lastPaidAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "date unknown";
+      paidLines.push(tenant.full_name + " paid KSh " + paid.toLocaleString() + " on " + dateStr);
     }
   }
 }
