@@ -15,6 +15,10 @@ const PLAN_PRICES: Record<string, number> = {
   portfolio: 6500,
 };
 
+// Annual billing gets 20% off, matching the "Pay annually and save 20%"
+// copy on the /for-landlords pricing page.
+const ANNUAL_DISCOUNT = 0.2;
+
 async function getAccessToken(consumerKey: string, consumerSecret: string) {
   const auth = Buffer.from(consumerKey + ":" + consumerSecret).toString("base64");
   const res = await fetch("https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials", {
@@ -64,7 +68,10 @@ export async function POST(request: Request) {
     }
 
     const monthlyAmount = PLAN_PRICES[plan];
-    const amount = billingCycle === "annual" ? monthlyAmount * 12 : monthlyAmount;
+    const amount =
+      billingCycle === "annual"
+        ? Math.round(monthlyAmount * 12 * (1 - ANNUAL_DISCOUNT))
+        : monthlyAmount;
 
     const shortcode = process.env.MANAGIKA_MPESA_SHORTCODE;
     const shortcodeType = process.env.MANAGIKA_MPESA_SHORTCODE_TYPE || "paybill";

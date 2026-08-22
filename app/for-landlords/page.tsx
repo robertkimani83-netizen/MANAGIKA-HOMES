@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef } from "react";
 
@@ -228,7 +228,7 @@ export default function ForLandlords() {
                   <li><span className="lp-mark">✓</span>Automated monthly rent reminders</li>
                   <li><span className="lp-mark">✓</span>2 admin logins</li>
                 </ul>
-                <a className="lp-cta" href="mailto:robertkimani83@gmail.com?subject=Managika%20Homes%20—%20Starter%20plan">Get started</a>
+                <a className="lp-cta" href="/landlord/login?plan=starter">Get started</a>
               </div>
 
               <div className="lp-tier lp-featured">
@@ -249,7 +249,7 @@ export default function ForLandlords() {
                   <li><span className="lp-mark">✓</span>Maintenance &amp; complaint tracking</li>
                   <li><span className="lp-mark">✓</span>10 admin logins</li>
                 </ul>
-                <a className="lp-cta" href="mailto:robertkimani83@gmail.com?subject=Managika%20Homes%20—%20Growth%20plan">Get started</a>
+                <a className="lp-cta" href="/landlord/login?plan=growth">Get started</a>
               </div>
 
               <div className="lp-tier">
@@ -269,7 +269,7 @@ export default function ForLandlords() {
                   <li><span className="lp-mark">✓</span>Priority support</li>
                   <li><span className="lp-mark">✓</span>Dedicated onboarding</li>
                 </ul>
-                <a className="lp-cta" href="mailto:robertkimani83@gmail.com?subject=Managika%20Homes%20—%20Portfolio%20plan">Get started</a>
+                <a className="lp-cta" href="/landlord/login?plan=portfolio">Get started</a>
               </div>
             </div>
 

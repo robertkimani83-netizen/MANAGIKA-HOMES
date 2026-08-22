@@ -1,7 +1,7 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 const PLANS = [
@@ -10,12 +10,22 @@ const PLANS = [
   { key: "portfolio", name: "Portfolio", price: 6500, blurb: "For larger, established portfolios" },
 ];
 
-export default function LandlordBilling() {
+function annualPrice(monthly: number) {
+  return Math.round(monthly * 12 * 0.8);
+}
+
+function LandlordBillingInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const planFromUrl = searchParams.get("plan");
+
   const [loading, setLoading] = useState(true);
   const [authToken, setAuthToken] = useState("");
   const [subscription, setSubscription] = useState<any>(null);
-  const [selectedPlan, setSelectedPlan] = useState("growth");
+  const [selectedPlan, setSelectedPlan] = useState(
+    planFromUrl && PLANS.some((p) => p.key === planFromUrl) ? planFromUrl : "growth"
+  );
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [paying, setPaying] = useState(false);
   const [status, setStatus] = useState("");
@@ -48,6 +58,9 @@ export default function LandlordBilling() {
     if (sub) {
       setSubscription(sub);
       setSelectedPlan(sub.plan);
+      if (sub.billing_cycle === "annual" || sub.billing_cycle === "monthly") {
+        setBillingCycle(sub.billing_cycle);
+      }
     }
     setLoading(false);
   }
@@ -80,7 +93,7 @@ export default function LandlordBilling() {
         },
         body: JSON.stringify({
           plan: selectedPlan,
-          billingCycle: "monthly",
+          billingCycle,
           phoneNumber: phoneNumber.trim(),
         }),
       });
@@ -147,6 +160,7 @@ export default function LandlordBilling() {
           <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-5">
             <p className="font-semibold text-emerald-800">
               You&rsquo;re on the {subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)} plan
+              {subscription.billing_cycle === "annual" ? " (annual)" : ""}
             </p>
             <p className="mt-1 text-sm text-emerald-700">
               Renews {new Date(subscription.current_period_end).toLocaleDateString()}
@@ -160,7 +174,32 @@ export default function LandlordBilling() {
           </div>
         )}
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-3">
+        <div className="mt-8 flex justify-center">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => setBillingCycle("monthly")}
+              className={
+                "rounded-md px-4 py-2 text-sm font-semibold transition " +
+                (billingCycle === "monthly" ? "bg-slate-900 text-white" : "text-slate-600")
+              }
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingCycle("annual")}
+              className={
+                "rounded-md px-4 py-2 text-sm font-semibold transition " +
+                (billingCycle === "annual" ? "bg-slate-900 text-white" : "text-slate-600")
+              }
+            >
+              Annual — save 20%
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-3">
           {PLANS.map((plan) => (
             <button
               key={plan.key}
@@ -172,10 +211,20 @@ export default function LandlordBilling() {
               }
             >
               <p className="font-bold text-slate-900">{plan.name}</p>
-              <p className="mt-2 text-2xl font-extrabold text-slate-900">
-                KSh {plan.price.toLocaleString()}
-                <span className="text-sm font-medium text-slate-500"> /mo</span>
-              </p>
+              {billingCycle === "monthly" ? (
+                <p className="mt-2 text-2xl font-extrabold text-slate-900">
+                  KSh {plan.price.toLocaleString()}
+                  <span className="text-sm font-medium text-slate-500"> /mo</span>
+                </p>
+              ) : (
+                <>
+                  <p className="mt-2 text-2xl font-extrabold text-slate-900">
+                    KSh {annualPrice(plan.price).toLocaleString()}
+                    <span className="text-sm font-medium text-slate-500"> /yr</span>
+                  </p>
+                  <p className="text-xs text-slate-400 line-through">KSh {(plan.price * 12).toLocaleString()} /yr</p>
+                </>
+              )}
               <p className="mt-2 text-xs text-slate-500">{plan.blurb}</p>
             </button>
           ))}
@@ -211,5 +260,13 @@ export default function LandlordBilling() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LandlordBilling() {
+  return (
+    <Suspense fallback={null}>
+      <LandlordBillingInner />
+    </Suspense>
   );
 }
