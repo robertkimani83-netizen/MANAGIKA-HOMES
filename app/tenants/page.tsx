@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -37,7 +37,7 @@ setVacantUnits(data as unknown as Unit[]);
 
 async function loadTenants(id: string) {
 setLoading(true);
-const { data, error } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, unit_id, units!inner(unit_number, base_rent, property_id, properties!inner(property_name, landlord_id))").eq("landlord_id", id).order("created_at", { ascending: false });
+const { data, error } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, unit_id, units(unit_number, base_rent, property_id, properties(property_name, landlord_id))").eq("landlord_id", id).order("created_at", { ascending: false });
 if (error) { console.error("Tenants error:", error); setTenants([]); } else if (data) { setTenants(data as unknown as Tenant[]); }
 setLoading(false);
 }
