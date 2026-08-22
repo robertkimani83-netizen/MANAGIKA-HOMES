@@ -1,20 +1,16 @@
-"use client";
-
+﻿"use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-
 function currentPeriod() {
 const d = new Date();
 const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 return names[d.getMonth()] + " " + d.getFullYear();
 }
-
 type MaintenanceRequest = {
 id: string;
 status: string;
 urgency: string;
 };
-
 export default function LandlordDashboard() {
 const [propertyCount, setPropertyCount] = useState(0);
 const [unitCount, setUnitCount] = useState(0);
@@ -24,36 +20,28 @@ const [maintenanceCount, setMaintenanceCount] = useState(0);
 const [urgentMaintenance, setUrgentMaintenance] = useState(0);
 const [complaintCount, setComplaintCount] = useState(0);
 const [loading, setLoading] = useState(true);
-
 useEffect(() => {
 async function loadStats() {
 setLoading(true);
-
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) { window.location.href = "/landlord/login"; return; }
-
   const landlordId = user.id;
-
+  const { data: subscription } = await supabase.from("landlord_subscriptions").select("status").eq("landlord_id", landlordId).maybeSingle();
+  if (!subscription || subscription.status !== "active") { window.location.href = "/landlord/billing"; return; }
   const { data: landlordProperties } = await supabase.from("properties").select("id").eq("landlord_id", landlordId);
   const propertyIds = (landlordProperties || []).map((p) => p.id);
-
   let landlordUnits: { id: string; base_rent: number; status: string }[] = [];
   if (propertyIds.length > 0) {
     const { data: units } = await supabase.from("units").select("id, base_rent, status").in("property_id", propertyIds);
     landlordUnits = units || [];
   }
   const unitIds = landlordUnits.map((u) => u.id);
-
   const { count: tenantCountResult } = await supabase.from("tenants").select("id", { count: "exact", head: true }).eq("landlord_id", landlordId).eq("status", "active");
-
   const rentExpected = landlordUnits.filter((u) => u.status === "occupied").reduce((sum, u) => sum + (Number(u.base_rent) || 0), 0);
-
   const period = currentPeriod();
-
   let collected = 0;
   const { data: tenantsForPeriod } = await supabase.from("tenants").select("id").eq("landlord_id", landlordId);
   const tenantIds = (tenantsForPeriod || []).map((t) => t.id);
-
   if (tenantIds.length > 0) {
     const { data: invoicesThisPeriod } = await supabase.from("invoices").select("id").in("tenant_id", tenantIds).eq("billing_period", period);
     const invoiceIds = (invoicesThisPeriod || []).map((i) => i.id);
@@ -62,7 +50,6 @@ setLoading(true);
       collected = (paymentsThisPeriod || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
     }
   }
-
   let openRequestsCount = 0;
   let urgentRequestsCount = 0;
   let openComplaintsCount = 0;
@@ -72,11 +59,9 @@ setLoading(true);
     const openRequests = requests.filter((r) => r.status !== "completed");
     openRequestsCount = openRequests.length;
     urgentRequestsCount = openRequests.filter((r) => r.urgency === "urgent").length;
-
     const { data: complaintRows } = await supabase.from("complaints").select("id, status").in("unit_id", unitIds);
     openComplaintsCount = (complaintRows || []).filter((c: any) => c.status !== "resolved").length;
   }
-
   setPropertyCount(propertyIds.length);
   setUnitCount(landlordUnits.length);
   setTenantCount(tenantCountResult || 0);
@@ -84,16 +69,11 @@ setLoading(true);
   setMaintenanceCount(openRequestsCount);
   setUrgentMaintenance(urgentRequestsCount);
   setComplaintCount(openComplaintsCount);
-
   setLoading(false);
 }
-
 loadStats();
-
 }, []);
-
 const formatMoney = (amount: number) => "KSh " + amount.toLocaleString();
-
 const steps = [
 { number: "①", icon: "🏠", title: "Properties", description: "Add and manage your buildings and apartments.", label: "Properties", value: propertyCount, button: "Manage Properties", href: "/properties" },
 { number: "②", icon: "🚪", title: "Units", description: "Add rental units inside your properties.", label: "Total Units", value: unitCount, button: "Manage Units", href: "/units" },
@@ -101,7 +81,6 @@ const steps = [
 { number: "④", icon: "💰", title: "Payments", description: "Record rent and track outstanding payments.", label: "Outstanding Rent", value: outstanding, button: "View Payments", href: "/payments" },
 { number: "⑤", icon: "🔧", title: "Maintenance", description: "Record and track maintenance requests.", label: "Open Requests", value: maintenanceCount, button: "View Maintenance", href: "/maintenance" },
 ];
-
 return (
 <main className="min-h-screen bg-slate-100 text-slate-900">
 <header className="city-skyline-header border-b">
@@ -113,7 +92,6 @@ return (
 <a href="/landlord/login" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sign Out</a>
 </div>
 </header>
-
   <section className="city-skyline-hero border-b">
     <div className="mx-auto max-w-7xl px-6 py-10">
       <p className="text-sm font-semibold uppercase tracking-widest text-slate-300">Landlord Portal</p>
@@ -121,7 +99,6 @@ return (
       <p className="mt-3 max-w-2xl text-slate-300">Follow the steps from left to right to manage your property.</p>
     </div>
   </section>
-
   <section className="mx-auto max-w-7xl px-6 py-8">
     <div className="mb-8">
       <div className="flex items-center gap-2 overflow-x-auto pb-4">
@@ -147,7 +124,6 @@ return (
         ))}
       </div>
     </div>
-
     <div className="mb-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-medium text-slate-500">Properties</p>
@@ -170,7 +146,6 @@ return (
         <p className="mt-1 text-sm text-slate-400">This month, currently unpaid</p>
       </div>
     </div>
-
     {!loading && maintenanceCount > 0 && (
       <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -185,7 +160,6 @@ return (
         </div>
       </div>
     )}
-
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 className="text-xl font-bold">Quick Navigation</h3>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-8">
@@ -200,11 +174,9 @@ return (
       </div>
     </div>
   </section>
-
   <footer className="mt-10 border-t bg-white">
     <div className="mx-auto max-w-7xl px-6 py-6 text-center text-sm text-slate-500">© 2026 Managika Homes. Property management made simple.</div>
   </footer>
 </main>
-
 );
 }
