@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -55,6 +55,29 @@ const result = await sms.send({
   message: message,
   ...(senderId ? { from: senderId } : {}),
 });
+
+// Africa's Talking always returns HTTP 200 with success:true from our own
+// fetch, even when it did NOT actually deliver the message - the real
+// answer is buried in result.SMSMessageData.Recipients[0].status. Check
+// that explicitly instead of trusting the outer response, so the landlord
+// is never told "Reminder sent" for a message that was actually rejected.
+const recipient = result?.SMSMessageData?.Recipients?.[0];
+const delivered = recipient?.status === "Success";
+
+if (!delivered) {
+  const reason = recipient?.status || "Unknown error";
+  return NextResponse.json(
+    {
+      success: false,
+      error:
+        "The SMS provider did not deliver this message (reason: " +
+        reason +
+        "). The recipient's number may be blocked or opted out of promotional SMS.",
+      result,
+    },
+    { status: 502 }
+  );
+}
 
 return NextResponse.json({ success: true, result });
 
