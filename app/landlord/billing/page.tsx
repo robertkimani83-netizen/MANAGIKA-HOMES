@@ -174,6 +174,12 @@ function LandlordBillingInner() {
           </div>
         )}
 
+        {!isActive && subscription?.status === "past_due" && (
+          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-6 py-4 text-sm text-red-800">
+            Your subscription has expired. Renew below to regain access to your dashboard.
+          </div>
+        )}
+
         <div className="mt-8 flex justify-center">
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
             <button
