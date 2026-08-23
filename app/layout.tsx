@@ -1,4 +1,4 @@
-﻿import type { Metadata, Viewport } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegister from "./service-worker-register";
@@ -18,8 +18,8 @@ export const metadata: Metadata = {
   description: "Property management made simple",
   manifest: "/manifest.json",
   icons: {
-    icon: "/icon-192.png",
-    apple: "/icon-192.png",
+    icon: "/icon-192-v2.png",
+    apple: "/icon-192-v2.png",
   },
   appleWebApp: {
     capable: true,
