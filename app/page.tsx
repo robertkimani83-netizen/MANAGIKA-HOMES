@@ -30,6 +30,13 @@ return (
         </div>
 
         <a href="/for-landlords" className="mt-6 inline-block text-sm font-bold text-amber-700 underline underline-offset-4 hover:text-amber-800">New landlord? See how Managika Homes works &amp; pricing →</a>
+
+        <div className="mt-8 flex flex-col items-center gap-2 border-t border-slate-200 pt-6">
+          <a href="/managika.apk" download className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-6 py-3 text-sm font-bold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800">
+            📱 Download for Android
+          </a>
+          <p className="max-w-sm text-xs font-semibold text-slate-500">After downloading, open the file and allow installs from this source when prompted.</p>
+        </div>
       </div>
     </div>
 
