@@ -23,21 +23,29 @@ const SCAN_PROMPT =
   "If a name or number is genuinely unreadable, skip that line rather than guessing.";
 
 async function askGemini(model: string, imageBase64: string, mimeType: string) {
-const response = await fetch(
-  "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + process.env.GEMINI_API_KEY,
-  {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: SCAN_PROMPT },
-          { inline_data: { mime_type: mimeType, data: imageBase64 } },
-        ],
-      }],
-    }),
-  }
-);
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 18000);
+let response;
+try {
+  response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + process.env.GEMINI_API_KEY,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: SCAN_PROMPT },
+            { inline_data: { mime_type: mimeType, data: imageBase64 } },
+          ],
+        }],
+      }),
+      signal: controller.signal,
+    }
+  );
+} finally {
+  clearTimeout(timeoutId);
+}
 const data = await response.json();
 return { ok: response.ok, data };
 }
@@ -69,11 +77,14 @@ for (const model of MODELS) {
       return NextResponse.json({ text: (text || "").trim() });
     }
     lastError = (result.data.error && result.data.error.message) || lastError;
+    console.error("scan-list: model " + model + " returned an error:", lastError);
   } catch (err: any) {
-    lastError = err.message || lastError;
+    lastError = err.name === "AbortError" ? "Timed out waiting for the AI to respond (model: " + model + ")" : (err.message || lastError);
+    console.error("scan-list: model " + model + " threw:", lastError);
   }
 }
 
+console.error("scan-list: all models failed, last error:", lastError);
 return NextResponse.json({ error: lastError }, { status: 500 });
 
 } catch (error: any) {
