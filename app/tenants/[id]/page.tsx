@@ -14,15 +14,32 @@ const [tenant, setTenant] = useState<any>(null);
 const [invoices, setInvoices] = useState<any[]>([]);
 const [maintenance, setMaintenance] = useState<any[]>([]);
 const [complaints, setComplaints] = useState<any[]>([]);
+const [landlordId, setLandlordId] = useState<string | null>(null);
+const [unitOptions, setUnitOptions] = useState<any[]>([]);
+const [selectedUnitId, setSelectedUnitId] = useState("");
+const [savingUnit, setSavingUnit] = useState(false);
+const [unitMessage, setUnitMessage] = useState<string | null>(null);
 
 useEffect(() => {
 async function init() {
 const { data } = await supabase.auth.getUser();
 if (!data.user) { router.push("/landlord/login"); return; }
+setLandlordId(data.user.id);
 
   const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).single();
   if (!tenantRow) { router.push("/tenants"); return; }
   setTenant(tenantRow);
+  setSelectedUnitId(tenantRow.unit_id || "");
+
+  const { data: vacantRows } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", data.user.id).order("unit_number", { ascending: true });
+  let options = vacantRows || [];
+  if (tenantRow.unit_id) {
+    const { data: currentUnitRow } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties(property_name, landlord_id)").eq("id", tenantRow.unit_id).single();
+    if (currentUnitRow && !options.find((u: any) => u.id === currentUnitRow.id)) {
+      options = [currentUnitRow, ...options];
+    }
+  }
+  setUnitOptions(options);
 
   const { data: invoiceRows } = await supabase.from("invoices").select("id, billing_period, total_due, status, due_date").eq("tenant_id", tenantId).order("due_date", { ascending: false });
   setInvoices(invoiceRows || []);
@@ -38,6 +55,40 @@ if (!data.user) { router.push("/landlord/login"); return; }
 init();
 
 }, [router, tenantId]);
+
+async function saveUnit() {
+if (!landlordId) return;
+setSavingUnit(true);
+setUnitMessage(null);
+const previousUnitId = tenant.unit_id;
+const newUnitId = selectedUnitId || null;
+
+const { error: tenantError } = await supabase.from("tenants").update({ unit_id: newUnitId }).eq("id", tenantId);
+if (tenantError) { setUnitMessage("Error: " + tenantError.message); setSavingUnit(false); return; }
+
+if (previousUnitId && previousUnitId !== newUnitId) {
+  await supabase.from("units").update({ status: "vacant" }).eq("id", previousUnitId);
+}
+if (newUnitId) {
+  await supabase.from("units").update({ status: "occupied" }).eq("id", newUnitId);
+}
+
+const { data: refreshedTenant } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).single();
+if (refreshedTenant) setTenant(refreshedTenant);
+
+const { data: vacantRows } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", landlordId).order("unit_number", { ascending: true });
+let options = vacantRows || [];
+if (newUnitId) {
+  const { data: currentUnitRow } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties(property_name, landlord_id)").eq("id", newUnitId).single();
+  if (currentUnitRow && !options.find((u: any) => u.id === currentUnitRow.id)) {
+    options = [currentUnitRow, ...options];
+  }
+}
+setUnitOptions(options);
+
+setUnitMessage("Saved.");
+setSavingUnit(false);
+}
 
 if (loading || !tenant) {
 return (<main className="min-h-screen bg-gray-100 flex items-center justify-center text-gray-500">Loading tenant details...</main>);
@@ -59,6 +110,25 @@ return (
     <div className="mb-8">
       <h2 className="text-3xl font-bold text-gray-900">{tenant.full_name}</h2>
       <p className="text-gray-500 mt-1">{tenant.units ? tenant.units.properties?.property_name + " — Unit " + tenant.units.unit_number : "No unit assigned"}</p>
+    </div>
+
+    <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
+      <h3 className="text-xl font-semibold mb-4">Unit Assignment</h3>
+      <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+        <div className="flex-1">
+          <label className="mb-2 block text-sm font-medium text-gray-700">Unit</label>
+          <select value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
+            <option value="">No unit assigned</option>
+            {unitOptions.map((unit) => (
+              <option key={unit.id} value={unit.id}>{unit.properties?.property_name} - {unit.unit_number} (KSh {Number(unit.base_rent).toLocaleString()})</option>
+            ))}
+          </select>
+        </div>
+        <button onClick={saveUnit} disabled={savingUnit} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+          {savingUnit ? "Saving..." : "Save"}
+        </button>
+      </div>
+      {unitMessage && <p className="mt-3 text-sm text-gray-600">{unitMessage}</p>}
     </div>
 
     <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
