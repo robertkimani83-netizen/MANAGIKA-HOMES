@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -7,6 +7,31 @@ import { supabase } from "@/lib/supabase";
 type Unit = { id: string; unit_number: string; base_rent: number; status: string; property_id: string; properties: { property_name: string } | null };
 
 type Tenant = { id: string; full_name: string; phone_number: string; email: string | null; status: string; unit_id: string | null; units: { unit_number: string; base_rent: number; properties: { property_name: string } | null } | null };
+
+// Pulls a phone number out of a messy pasted line regardless of where it
+// sits (start, end, with dashes/spaces) - matches 07xx / +254xx / 254xx
+// style Kenyan numbers, 9-13 digits once separators are stripped.
+function extractPhone(line: string): { phone: string | null; rest: string } {
+  const match = line.match(/(\+?254|0)?[\s-]?\d{2,3}[\s-]?\d{3}[\s-]?\d{3,4}/);
+  if (!match) return { phone: null, rest: line.trim() };
+  const digitsOnly = match[0].replace(/[\s-]/g, "");
+  if (digitsOnly.replace(/^\+?254|^0/, "").length < 8) return { phone: null, rest: line.trim() };
+  const rest = (line.slice(0, match.index) + line.slice((match.index ?? 0) + match[0].length)).trim();
+  return { phone: digitsOnly, rest };
+}
+
+// Splits a pasted line into a name, whatever's left after pulling the phone
+// number out - handles "Name, Phone", "Name<tab>Phone" (Excel/Sheets paste),
+// and "Name - Phone" all the same way.
+function parseBulkLine(line: string): { name: string; phone: string } | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  const { phone, rest } = extractPhone(trimmed);
+  if (!phone) return null;
+  const name = rest.replace(/^[,\-–\t]+|[,\-–\t]+$/g, "").trim();
+  if (!name) return null;
+  return { name, phone };
+}
 
 export default function TenantsPage() {
 const router = useRouter();
@@ -19,6 +44,10 @@ const [fullName, setFullName] = useState("");
 const [phone, setPhone] = useState("");
 const [email, setEmail] = useState("");
 const [unitId, setUnitId] = useState("");
+const [showBulkForm, setShowBulkForm] = useState(false);
+const [bulkText, setBulkText] = useState("");
+const [bulkSaving, setBulkSaving] = useState(false);
+const [bulkResult, setBulkResult] = useState<{ added: number; skipped: string[] } | null>(null);
 
 useEffect(() => {
 async function init() {
@@ -67,6 +96,39 @@ await loadVacantUnits(landlordId);
 await loadTenants(landlordId);
 }
 
+async function addBulkTenants() {
+if (!landlordId) return;
+const lines = bulkText.split("\n");
+const parsed: { name: string; phone: string }[] = [];
+const skipped: string[] = [];
+for (const line of lines) {
+if (!line.trim()) continue;
+const result = parseBulkLine(line);
+if (result) parsed.push(result);
+else skipped.push(line.trim());
+}
+if (parsed.length === 0) {
+setBulkResult({ added: 0, skipped });
+return;
+}
+setBulkSaving(true);
+const rows = parsed.map((p) => ({
+landlord_id: landlordId,
+full_name: p.name,
+phone_number: p.phone,
+email: null,
+unit_id: null,
+status: "active",
+joined_at: new Date().toISOString(),
+}));
+const { error } = await supabase.from("tenants").insert(rows);
+setBulkSaving(false);
+if (error) { alert("Error saving tenants: " + error.message); return; }
+setBulkResult({ added: parsed.length, skipped });
+setBulkText("");
+await loadTenants(landlordId);
+}
+
 async function deleteTenant(tenant: Tenant) {
 if (!landlordId) return;
 const confirmed = window.confirm("Are you sure you want to remove this tenant?");
@@ -107,8 +169,48 @@ return (
           <p className="text-slate-500 mt-1">Manage tenants, assignments and rental information.</p>
         </div>
       </div>
-      <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Tenant</button>
+      <div className="flex gap-3">
+        <button onClick={() => setShowBulkForm(true)} className="px-5 py-3 rounded-lg border-2 border-slate-900 bg-white text-slate-900 font-medium hover:-translate-y-0.5 hover:bg-slate-50 transition">📋 Paste a List</button>
+        <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Tenant</button>
+      </div>
     </div>
+
+    {showBulkForm && (
+      <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
+        <h3 className="mb-2 text-xl font-bold text-slate-900">Paste a List of Tenants</h3>
+        <p className="mb-4 text-sm text-slate-500">
+          Add many tenants at once instead of typing them one by one. Paste one tenant per line - it works with
+          "Name, 0712345678", a list copied straight from Excel/Sheets, or names and numbers copied from your phone.
+          You can assign units to each tenant afterwards from their profile.
+        </p>
+        <textarea
+          value={bulkText}
+          onChange={(e) => setBulkText(e.target.value)}
+          rows={8}
+          placeholder={"John Kamau, 0712345678\nMary Wanjiru, 0798765432\nPeter Otieno - 0722334455"}
+          className="w-full rounded-lg border border-slate-300 px-4 py-3 font-mono text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+        />
+        {bulkResult && (
+          <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm">
+            <p className="font-semibold text-slate-800">Added {bulkResult.added} tenant{bulkResult.added === 1 ? "" : "s"}.</p>
+            {bulkResult.skipped.length > 0 && (
+              <div className="mt-2">
+                <p className="font-medium text-red-600">Couldn't read {bulkResult.skipped.length} line{bulkResult.skipped.length === 1 ? "" : "s"} (no phone number found):</p>
+                <ul className="mt-1 list-disc pl-5 text-slate-600">
+                  {bulkResult.skipped.map((line, i) => (<li key={i}>{line}</li>))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        <div className="mt-6 flex gap-3">
+          <button onClick={addBulkTenants} disabled={bulkSaving || !bulkText.trim()} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+            {bulkSaving ? "Adding..." : "Add All"}
+          </button>
+          <button onClick={() => { setShowBulkForm(false); setBulkResult(null); }} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Close</button>
+        </div>
+      </div>
+    )}
 
     {showForm && (
       <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
