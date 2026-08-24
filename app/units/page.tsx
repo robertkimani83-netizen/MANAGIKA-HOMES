@@ -19,6 +19,15 @@ const [propertyId, setPropertyId] = useState("");
 const [unitNumber, setUnitNumber] = useState("");
 const [baseRent, setBaseRent] = useState("");
 const [garbageFee, setGarbageFee] = useState("");
+const [showBulkForm, setShowBulkForm] = useState(false);
+const [bulkPropertyId, setBulkPropertyId] = useState("");
+const [bulkPrefix, setBulkPrefix] = useState("");
+const [bulkStart, setBulkStart] = useState("");
+const [bulkEnd, setBulkEnd] = useState("");
+const [bulkRent, setBulkRent] = useState("");
+const [bulkGarbage, setBulkGarbage] = useState("");
+const [bulkSaving, setBulkSaving] = useState(false);
+const [bulkResult, setBulkResult] = useState<string | null>(null);
 
 useEffect(() => {
 async function init() {
@@ -33,7 +42,10 @@ async function loadProperties(id: string) {
 const { data } = await supabase.from("properties").select("id, property_name").eq("landlord_id", id).order("property_name", { ascending: true });
 if (data) {
 setProperties(data);
-if (data.length > 0) setPropertyId((prev) => prev || data[0].id);
+if (data.length > 0) {
+  setPropertyId((prev) => prev || data[0].id);
+  setBulkPropertyId((prev) => prev || data[0].id);
+}
 }
 }
 
@@ -61,6 +73,42 @@ const garbage = Number(garbageFee) || 0;
 const { error } = await supabase.from("units").insert({ property_id: propertyId, unit_number: unitNumber.trim(), base_rent: rent, garbage_fee: garbage });
 if (error) { alert("Error saving unit: " + error.message); return; }
 setUnitNumber(""); setBaseRent(""); setGarbageFee(""); setShowForm(false);
+loadUnits(landlordId);
+}
+
+async function addBulkUnits() {
+if (!landlordId) return;
+if (!bulkPropertyId) { alert("Please add a property first, then select it here."); return; }
+const start = parseInt(bulkStart, 10);
+const end = parseInt(bulkEnd, 10);
+if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+  alert("Please enter a valid range, for example From 1 To 20.");
+  return;
+}
+const count = end - start + 1;
+if (count > 200) {
+  alert("That's " + count + " units at once - please create up to 200 at a time.");
+  return;
+}
+const rent = Number(bulkRent);
+if (!Number.isFinite(rent) || rent <= 0) { alert("Please enter a valid monthly rent."); return; }
+const garbage = Number(bulkGarbage) || 0;
+const prefix = bulkPrefix.trim();
+
+setBulkSaving(true);
+setBulkResult(null);
+const rows = [];
+for (let n = start; n <= end; n++) {
+  rows.push({ property_id: bulkPropertyId, unit_number: prefix + n, base_rent: rent, garbage_fee: garbage });
+}
+const { error, data } = await supabase.from("units").insert(rows).select("id");
+setBulkSaving(false);
+if (error) {
+  setBulkResult("Error: " + error.message + " (if some of these unit numbers already exist, adjust the range and try again)");
+  return;
+}
+setBulkResult("Created " + (data ? data.length : rows.length) + " units: " + prefix + start + " to " + prefix + end + ".");
+setBulkPrefix(""); setBulkStart(""); setBulkEnd(""); setBulkRent(""); setBulkGarbage("");
 loadUnits(landlordId);
 }
 
@@ -102,8 +150,62 @@ return (
           <p className="text-slate-500 mt-1">Manage rental units, tenants and occupancy.</p>
         </div>
       </div>
-      <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Unit</button>
+      <div className="flex gap-3">
+        <button onClick={() => setShowBulkForm(true)} className="px-5 py-3 rounded-lg border-2 border-slate-900 bg-white text-slate-900 font-medium hover:-translate-y-0.5 hover:bg-slate-50 transition">🔢 Bulk Create Units</button>
+        <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Unit</button>
+      </div>
     </div>
+
+    {showBulkForm && (
+      <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
+        <h3 className="mb-2 text-xl font-bold text-slate-900">Bulk Create Units</h3>
+        <p className="mb-4 text-sm text-slate-500">Create a whole range of units at once - for example A1 through A20 - instead of adding them one by one. All units in the range get the same rent.</p>
+        {properties.length === 0 ? (
+          <p className="text-slate-500">Add a property first under the Properties page before adding units.</p>
+        ) : (
+          <>
+            <div className="grid gap-5 md:grid-cols-5">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Property</label>
+                <select value={bulkPropertyId} onChange={(e) => setBulkPropertyId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
+                  {properties.map((p) => (<option key={p.id} value={p.id}>{p.property_name}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Prefix</label>
+                <input type="text" value={bulkPrefix} onChange={(e) => setBulkPrefix(e.target.value)} placeholder="e.g. A" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">From #</label>
+                <input type="number" min="0" value={bulkStart} onChange={(e) => setBulkStart(e.target.value)} placeholder="1" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">To #</label>
+                <input type="number" min="0" value={bulkEnd} onChange={(e) => setBulkEnd(e.target.value)} placeholder="20" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Monthly Rent (KSh)</label>
+                <input type="number" min="0" value={bulkRent} onChange={(e) => setBulkRent(e.target.value)} placeholder="e.g. 15000" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+            </div>
+            <div className="mt-5 max-w-xs">
+              <label className="mb-2 block text-sm font-medium text-slate-700">Garbage Fee (KSh, optional)</label>
+              <input type="number" min="0" value={bulkGarbage} onChange={(e) => setBulkGarbage(e.target.value)} placeholder="e.g. 200" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            {bulkPrefix.trim() !== "" && bulkStart !== "" && bulkEnd !== "" && Number(bulkEnd) >= Number(bulkStart) && (
+              <p className="mt-4 text-sm text-slate-500">Will create {Number(bulkEnd) - Number(bulkStart) + 1} units: {bulkPrefix}{bulkStart} to {bulkPrefix}{bulkEnd}</p>
+            )}
+            {bulkResult && <p className="mt-3 text-sm font-medium text-slate-700">{bulkResult}</p>}
+            <div className="mt-6 flex gap-3">
+              <button onClick={addBulkUnits} disabled={bulkSaving} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+                {bulkSaving ? "Creating..." : "Create Units"}
+              </button>
+              <button onClick={() => { setShowBulkForm(false); setBulkResult(null); }} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Close</button>
+            </div>
+          </>
+        )}
+      </div>
+    )}
 
     {showForm && (
       <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
