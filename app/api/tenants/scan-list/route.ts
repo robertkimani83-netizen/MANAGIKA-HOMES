@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// Give this route more time than the default (Vercel's default is too
+// short for the AI to finish reading a photo) so a scan doesn't get cut off
+// mid-request.
+export const maxDuration = 60;
+
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
 const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();

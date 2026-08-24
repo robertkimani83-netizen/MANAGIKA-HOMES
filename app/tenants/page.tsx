@@ -164,11 +164,19 @@ try {
   if (!accessToken) { setScanError("You've been signed out - please refresh the page and log in again."); setScanning(false); return; }
 
   const imageBase64 = await fileToBase64(file);
-  const res = await fetch("/api/tenants/scan-list", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
-    body: JSON.stringify({ imageBase64, mimeType: file.type || "image/jpeg" }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
+  let res;
+  try {
+    res = await fetch("/api/tenants/scan-list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+      body: JSON.stringify({ imageBase64, mimeType: file.type || "image/jpeg" }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
   const data = await res.json();
   if (!res.ok || data.error) {
     setScanError(data.error || "Could not read that file. Try a clearer photo, or type the list in manually below.");
@@ -182,7 +190,11 @@ try {
   }
   setBulkText((prev) => (prev.trim() ? prev.trim() + "\n" + data.text : data.text));
 } catch (err: any) {
-  setScanError(err.message || "Something went wrong reading that file.");
+  if (err.name === "AbortError") {
+    setScanError("That took too long to read. Try again, or use a smaller/clearer photo.");
+  } else {
+    setScanError(err.message || "Something went wrong reading that file.");
+  }
 } finally {
   setScanning(false);
 }
