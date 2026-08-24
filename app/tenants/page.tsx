@@ -28,7 +28,7 @@ function parseBulkLine(line: string): { name: string; phone: string } | null {
   if (!trimmed) return null;
   const { phone, rest } = extractPhone(trimmed);
   if (!phone) return null;
-  const name = rest.replace(/^[,\-â€“\t]+|[,\-â€“\t]+$/g, "").trim();
+  const name = rest.replace(/^[,\-–\t]+|[,\-–\t]+$/g, "").trim();
   if (!name) return null;
   return { name, phone };
 }
@@ -222,14 +222,14 @@ return (
   <section className="max-w-7xl mx-auto px-6 py-8">
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
       <div className="flex items-center gap-4">
-        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 text-3xl">ðŸ‘¥</span>
+        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 text-3xl">👥</span>
         <div>
           <h2 className="text-3xl font-bold text-slate-900">Tenants</h2>
           <p className="text-slate-500 mt-1">Manage tenants, assignments and rental information.</p>
         </div>
       </div>
       <div className="flex gap-3">
-        <button onClick={() => setShowBulkForm(true)} className="px-5 py-3 rounded-lg border-2 border-slate-900 bg-white text-slate-900 font-medium hover:-translate-y-0.5 hover:bg-slate-50 transition">ðŸ“‹ Paste a List</button>
+        <button onClick={() => setShowBulkForm(true)} className="px-5 py-3 rounded-lg border-2 border-slate-900 bg-white text-slate-900 font-medium hover:-translate-y-0.5 hover:bg-slate-50 transition">📋 Paste a List</button>
         <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Tenant</button>
       </div>
     </div>
@@ -244,7 +244,7 @@ return (
         <div className="mb-5 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center">
           <label className="cursor-pointer">
             <span className="inline-block rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800">
-              {scanning ? "Reading document..." : "ðŸ“· Upload a Photo or PDF"}
+              {scanning ? "Reading document..." : "📷 Upload a Photo or PDF"}
             </span>
             <input type="file" accept="image/*,application/pdf" onChange={handleScanFile} disabled={scanning} className="hidden" />
           </label>
@@ -356,9 +356,9 @@ return (
                 <tr key={tenant.id} className="border-t">
                   <td className="px-6 py-4"><a href={"/tenants/" + tenant.id} className="font-medium text-amber-600 hover:underline">{tenant.full_name}</a></td>
                   <td className="px-6 py-4">{tenant.phone_number}</td>
-                  <td className="px-6 py-4">{tenant.units?.properties?.property_name || "â€”"}</td>
+                  <td className="px-6 py-4">{tenant.units?.properties?.property_name || "—"}</td>
                   <td className="px-6 py-4">{tenant.units?.unit_number || "Unassigned"}</td>
-                  <td className="px-6 py-4">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "â€”"}</td>
+                  <td className="px-6 py-4">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</td>
                   <td className="px-6 py-4"><button onClick={() => deleteTenant(tenant)} className="text-sm font-medium text-red-600 hover:underline">Remove</button></td>
                 </tr>
               ))
@@ -370,7 +370,7 @@ return (
   </section>
 
   <footer className="border-t bg-white mt-10">
-    <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-slate-500">Â© 2026 Managika Homes. Property management made simple.</div>
+    <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-slate-500">© 2026 Managika Homes. Property management made simple.</div>
   </footer>
 </main>
 
