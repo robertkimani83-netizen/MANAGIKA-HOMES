@@ -23,17 +23,31 @@ init();
 
 async function loadComplaints() {
 setLoading(true);
+const { data: userData } = await supabase.auth.getUser();
+const landlordId = userData.user?.id;
+if (!landlordId) { setLoading(false); return; }
+// Scoped to this landlord's own properties via the units -> properties join -
+// without this filter, any logged-in landlord could read every other
+// landlord's tenant complaints (private text) on this page.
 const { data, error } = await supabase
 .from("complaints")
-.select("id, description, status, created_at, tenants(full_name), units(unit_number)")
+.select("id, description, status, created_at, tenants(full_name), units!inner(unit_number, properties!inner(landlord_id))")
+.eq("units.properties.landlord_id", landlordId)
 .order("created_at", { ascending: false });
 if (!error && data) setComplaints(data as any[]);
 setLoading(false);
 }
 
 async function updateStatus(id: string, status: string) {
-const { error } = await supabase.from("complaints").update({ status }).eq("id", id);
-if (error) { alert("Error updating status: " + error.message); return; }
+const { data: sessionData } = await supabase.auth.getSession();
+const token = sessionData.session?.access_token || "";
+const res = await fetch("/api/complaints/" + id, {
+  method: "PATCH",
+  headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+  body: JSON.stringify({ status }),
+});
+const result = await res.json();
+if (!res.ok) { alert("Error updating status: " + (result.error || "unknown error")); return; }
 loadComplaints();
 }
 

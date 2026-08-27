@@ -19,6 +19,66 @@ const [unitOptions, setUnitOptions] = useState<any[]>([]);
 const [selectedUnitId, setSelectedUnitId] = useState("");
 const [savingUnit, setSavingUnit] = useState(false);
 const [unitMessage, setUnitMessage] = useState<string | null>(null);
+const [documents, setDocuments] = useState<any[]>([]);
+const [inspections, setInspections] = useState<any[]>([]);
+const [uploadFile, setUploadFile] = useState<File | null>(null);
+const [uploadType, setUploadType] = useState("lease");
+const [uploading, setUploading] = useState(false);
+const [documentError, setDocumentError] = useState<string | null>(null);
+
+async function authedFetch(url: string, options: RequestInit = {}) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token || "";
+  const headers = new Headers(options.headers);
+  headers.set("Authorization", "Bearer " + token);
+  return fetch(url, { ...options, headers });
+}
+
+async function loadDocuments() {
+  const res = await authedFetch("/api/documents?tenantId=" + tenantId);
+  const result = await res.json();
+  if (res.ok) setDocuments(result.documents || []);
+}
+
+async function uploadDocument() {
+  if (!uploadFile) { setDocumentError("Choose a file first."); return; }
+  setUploading(true);
+  setDocumentError(null);
+  const form = new FormData();
+  form.append("file", uploadFile);
+  form.append("tenantId", tenantId);
+  form.append("documentType", uploadType);
+  const res = await authedFetch("/api/documents", { method: "POST", body: form });
+  const result = await res.json();
+  if (!res.ok) { setDocumentError(result.error || "Upload failed"); setUploading(false); return; }
+  setUploadFile(null);
+  await loadDocuments();
+  setUploading(false);
+}
+
+async function viewDocument(id: string) {
+  const res = await authedFetch("/api/documents/" + id + "/url");
+  const result = await res.json();
+  if (!res.ok) { alert("Could not open document: " + (result.error || "unknown error")); return; }
+  window.open(result.url, "_blank");
+}
+
+async function deleteDocument(id: string) {
+  if (!confirm("Delete this document? This cannot be undone.")) return;
+  const res = await authedFetch("/api/documents/" + id, { method: "DELETE" });
+  const result = await res.json();
+  if (!res.ok) { alert("Error deleting: " + (result.error || "unknown error")); return; }
+  await loadDocuments();
+}
+
+const DOCUMENT_TYPES = [
+  { value: "lease", label: "Lease Agreement" },
+  { value: "receipt", label: "Receipt" },
+  { value: "deposit", label: "Deposit Record" },
+  { value: "inspection", label: "Inspection Report" },
+  { value: "notice", label: "Notice" },
+  { value: "other", label: "Other" },
+];
 
 useEffect(() => {
 async function init() {
@@ -26,7 +86,11 @@ const { data } = await supabase.auth.getUser();
 if (!data.user) { router.push("/landlord/login"); return; }
 setLandlordId(data.user.id);
 
-  const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).single();
+  // Scoped to this landlord's own tenants - without this filter, any
+  // logged-in landlord who knows or guesses another tenant's UUID could
+  // load that tenant's full profile, rent history, and maintenance
+  // history just by visiting /tenants/<uuid> directly.
+  const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).eq("landlord_id", data.user.id).single();
   if (!tenantRow) { router.push("/tenants"); return; }
   setTenant(tenantRow);
   setSelectedUnitId(tenantRow.unit_id || "");
@@ -50,6 +114,11 @@ setLandlordId(data.user.id);
   const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false });
   setComplaints(complaintRows || []);
 
+  await loadDocuments();
+
+  const { data: inspectionRows } = await supabase.from("unit_inspections").select("id, type, electricity_meter_reading, water_meter_reading, keys_issued, condition_notes, deposit_amount, deposit_refund_amount, photo_document_ids, created_at").eq("tenant_id", tenantId).eq("landlord_id", data.user.id).order("created_at", { ascending: false });
+  setInspections(inspectionRows || []);
+
   setLoading(false);
 }
 init();
@@ -63,7 +132,7 @@ setUnitMessage(null);
 const previousUnitId = tenant.unit_id;
 const newUnitId = selectedUnitId || null;
 
-const { error: tenantError } = await supabase.from("tenants").update({ unit_id: newUnitId }).eq("id", tenantId);
+const { error: tenantError } = await supabase.from("tenants").update({ unit_id: newUnitId }).eq("id", tenantId).eq("landlord_id", landlordId);
 if (tenantError) { setUnitMessage("Error: " + tenantError.message); setSavingUnit(false); return; }
 
 if (previousUnitId && previousUnitId !== newUnitId) {
@@ -73,7 +142,7 @@ if (newUnitId) {
   await supabase.from("units").update({ status: "occupied" }).eq("id", newUnitId);
 }
 
-const { data: refreshedTenant } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).single();
+const { data: refreshedTenant } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).eq("landlord_id", landlordId).single();
 if (refreshedTenant) setTenant(refreshedTenant);
 
 const { data: vacantRows } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", landlordId).order("unit_number", { ascending: true });
@@ -155,6 +224,79 @@ return (
           <p className="font-medium">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</p>
         </div>
       </div>
+    </div>
+
+    <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
+      <h3 className="text-xl font-semibold mb-4">Documents</h3>
+      <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-5">
+        <div className="flex-1">
+          <label className="mb-2 block text-sm font-medium text-gray-700">File</label>
+          <input type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-gray-700">Type</label>
+          <select value={uploadType} onChange={(e) => setUploadType(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
+            {DOCUMENT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
+          </select>
+        </div>
+        <button onClick={uploadDocument} disabled={uploading} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+          {uploading ? "Uploading..." : "Upload"}
+        </button>
+      </div>
+      {documentError && <p className="text-sm text-rose-600 mb-4">{documentError}</p>}
+      <div className="divide-y">
+        {documents.length === 0 ? (
+          <p className="py-6 text-center text-gray-500">No documents uploaded yet.</p>
+        ) : (
+          documents.map((d) => (
+            <div key={d.id} className="py-3 flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium text-gray-900">{d.file_name}</p>
+                <p className="text-xs text-gray-500 capitalize">{d.document_type.replace("_", " ")} · {new Date(d.uploaded_at).toLocaleDateString()}</p>
+              </div>
+              <div className="flex gap-3 shrink-0">
+                <button onClick={() => viewDocument(d.id)} className="text-sm text-blue-700 hover:underline">View</button>
+                <button onClick={() => deleteDocument(d.id)} className="text-sm text-rose-600 hover:underline">Delete</button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+
+    <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-semibold">Move-In / Move-Out</h3>
+        <a href={"/tenants/" + tenantId + "/inspection"} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">+ Start New Inspection</a>
+      </div>
+      {inspections.length === 0 ? (
+        <p className="text-gray-500">No inspections recorded yet.</p>
+      ) : (
+        <div className="divide-y">
+          {inspections.map((insp) => (
+            <div key={insp.id} className="py-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={"px-2 py-0.5 rounded text-xs font-semibold capitalize " + (insp.type === "move_in" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>{insp.type.replace("_", " ")}</span>
+                <span className="text-xs text-gray-400">{new Date(insp.created_at).toLocaleDateString()}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-2">
+                <div><p className="text-xs text-gray-400">Electricity</p><p className="font-medium">{insp.electricity_meter_reading || "—"}</p></div>
+                <div><p className="text-xs text-gray-400">Water</p><p className="font-medium">{insp.water_meter_reading || "—"}</p></div>
+                <div><p className="text-xs text-gray-400">Keys Issued</p><p className="font-medium">{insp.keys_issued ?? "—"}</p></div>
+                <div><p className="text-xs text-gray-400">Deposit</p><p className="font-medium">{insp.deposit_amount != null ? "KSh " + Number(insp.deposit_amount).toLocaleString() : "—"}{insp.deposit_refund_amount != null ? " (refund KSh " + Number(insp.deposit_refund_amount).toLocaleString() + ")" : ""}</p></div>
+              </div>
+              {insp.condition_notes && <p className="text-sm text-gray-600 mb-2">{insp.condition_notes}</p>}
+              {insp.photo_document_ids && insp.photo_document_ids.length > 0 && (
+                <div className="flex flex-wrap gap-3">
+                  {insp.photo_document_ids.map((docId: string, i: number) => (
+                    <button key={docId} onClick={() => viewDocument(docId)} className="text-sm text-blue-700 hover:underline">Photo {i + 1}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
 
     <div className="bg-white rounded-xl border shadow-sm overflow-hidden mb-8">

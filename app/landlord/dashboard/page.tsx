@@ -11,11 +11,18 @@ id: string;
 status: string;
 urgency: string;
 };
+type UnpaidTenant = { name: string; unit: string; amount: number };
+
 export default function LandlordDashboard() {
 const [propertyCount, setPropertyCount] = useState(0);
 const [unitCount, setUnitCount] = useState(0);
 const [tenantCount, setTenantCount] = useState(0);
 const [outstanding, setOutstanding] = useState(0);
+const [rentExpectedTotal, setRentExpectedTotal] = useState(0);
+const [collectedTotal, setCollectedTotal] = useState(0);
+const [occupiedCount, setOccupiedCount] = useState(0);
+const [vacantCount, setVacantCount] = useState(0);
+const [unpaidTenants, setUnpaidTenants] = useState<UnpaidTenant[]>([]);
 const [maintenanceCount, setMaintenanceCount] = useState(0);
 const [urgentMaintenance, setUrgentMaintenance] = useState(0);
 const [complaintCount, setComplaintCount] = useState(0);
@@ -37,7 +44,8 @@ setLoading(true);
   }
   const unitIds = landlordUnits.map((u) => u.id);
   const { count: tenantCountResult } = await supabase.from("tenants").select("id", { count: "exact", head: true }).eq("landlord_id", landlordId).eq("status", "active");
-  const rentExpected = landlordUnits.filter((u) => u.status === "occupied").reduce((sum, u) => sum + (Number(u.base_rent) || 0), 0);
+  const occupiedUnits = landlordUnits.filter((u) => u.status === "occupied");
+  const rentExpected = occupiedUnits.reduce((sum, u) => sum + (Number(u.base_rent) || 0), 0);
   const period = currentPeriod();
   let collected = 0;
   const { data: tenantsForPeriod } = await supabase.from("tenants").select("id").eq("landlord_id", landlordId);
@@ -49,6 +57,22 @@ setLoading(true);
       const { data: paymentsThisPeriod } = await supabase.from("payments").select("amount_paid").in("invoice_id", invoiceIds);
       collected = (paymentsThisPeriod || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
     }
+  }
+  // "What needs your attention today" - who specifically hasn't paid yet
+  // this period, not just the aggregate outstanding total.
+  let unpaid: UnpaidTenant[] = [];
+  const { data: unpaidInvoices } = await supabase
+    .from("invoices")
+    .select("total_due, status, tenants!inner(full_name, landlord_id), units(unit_number)")
+    .eq("billing_period", period)
+    .eq("tenants.landlord_id", landlordId)
+    .neq("status", "paid");
+  if (unpaidInvoices) {
+    unpaid = (unpaidInvoices as any[]).map((inv) => ({
+      name: inv.tenants?.full_name || "Unknown tenant",
+      unit: inv.units?.unit_number || "—",
+      amount: Number(inv.total_due) || 0,
+    }));
   }
   let openRequestsCount = 0;
   let urgentRequestsCount = 0;
@@ -66,6 +90,11 @@ setLoading(true);
   setUnitCount(landlordUnits.length);
   setTenantCount(tenantCountResult || 0);
   setOutstanding(Math.max(rentExpected - collected, 0));
+  setRentExpectedTotal(rentExpected);
+  setCollectedTotal(collected);
+  setOccupiedCount(occupiedUnits.length);
+  setVacantCount(landlordUnits.length - occupiedUnits.length);
+  setUnpaidTenants(unpaid);
   setMaintenanceCount(openRequestsCount);
   setUrgentMaintenance(urgentRequestsCount);
   setComplaintCount(openComplaintsCount);
@@ -124,51 +153,91 @@ return (
         ))}
       </div>
     </div>
-    <div className="mb-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+    {/* "Open the dashboard and understand everything in 5 seconds" - money
+        and occupancy at a glance before anything else. */}
+    <div className="mb-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-medium text-slate-500">Properties</p>
-        <p className="mt-2 text-3xl font-bold">{loading ? "—" : propertyCount}</p>
-        <p className="mt-1 text-sm text-slate-400">Buildings and properties</p>
+        <p className="text-sm font-medium text-slate-500">This Month&apos;s Rent</p>
+        <p className="mt-2 text-3xl font-bold">{loading ? "—" : formatMoney(rentExpectedTotal)}</p>
+        <p className="mt-1 text-sm text-slate-400">Expected from occupied units</p>
+      </div>
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+        <p className="text-sm font-medium text-emerald-700">Collected</p>
+        <p className="mt-2 text-3xl font-bold text-emerald-900">{loading ? "—" : formatMoney(collectedTotal)}</p>
+        <p className="mt-1 text-sm text-emerald-600">{loading || rentExpectedTotal === 0 ? "" : Math.round((collectedTotal / rentExpectedTotal) * 100) + "% of this month"}</p>
+      </div>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
+        <p className="text-sm font-medium text-amber-700">Outstanding</p>
+        <p className="mt-2 text-3xl font-bold text-amber-900">{loading ? "—" : formatMoney(outstanding)}</p>
+        <p className="mt-1 text-sm text-amber-600">{loading ? "" : unpaidTenants.length + " tenant" + (unpaidTenants.length === 1 ? "" : "s") + " unpaid"}</p>
       </div>
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-medium text-slate-500">Units</p>
-        <p className="mt-2 text-3xl font-bold">{loading ? "—" : unitCount}</p>
-        <p className="mt-1 text-sm text-slate-400">Total rental units</p>
+        <p className="text-sm font-medium text-slate-500">Occupied Units</p>
+        <p className="mt-2 text-3xl font-bold">{loading ? "—" : occupiedCount + " / " + unitCount}</p>
+        <p className="mt-1 text-sm text-slate-400">{loading ? "" : vacantCount + " vacant"}</p>
       </div>
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-medium text-slate-500">Active Tenants</p>
         <p className="mt-2 text-3xl font-bold">{loading ? "—" : tenantCount}</p>
-        <p className="mt-1 text-sm text-slate-400">Currently active tenants</p>
-      </div>
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-medium text-slate-500">Outstanding Rent</p>
-        <p className="mt-2 text-3xl font-bold">{loading ? "—" : formatMoney(outstanding)}</p>
-        <p className="mt-1 text-sm text-slate-400">This month, currently unpaid</p>
+        <p className="mt-1 text-sm text-slate-400">Currently active</p>
       </div>
     </div>
-    {!loading && maintenanceCount > 0 && (
-      <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-bold text-amber-900">Maintenance requires attention</p>
-            <p className="mt-1 text-sm text-amber-800">
-              You have {maintenanceCount} open maintenance {maintenanceCount === 1 ? "request" : "requests"}
-              {urgentMaintenance > 0 && `, including ${urgentMaintenance} urgent ${urgentMaintenance === 1 ? "request" : "requests"}`}.
-            </p>
-          </div>
-          <a href="/maintenance" className="rounded-lg bg-amber-900 px-5 py-3 text-center text-sm font-semibold text-white hover:bg-amber-800">Review Maintenance</a>
+
+    {!loading && (unpaidTenants.length > 0 || vacantCount > 0 || maintenanceCount > 0 || complaintCount > 0) && (
+      <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold text-slate-900">What needs your attention today</h3>
+        <div className="mt-5 space-y-3">
+          {unpaidTenants.slice(0, 5).map((t, i) => (
+            <div key={i} className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+              <div>
+                <p className="font-semibold text-amber-900">{t.name} — Unit {t.unit}</p>
+                <p className="text-sm text-amber-700">Hasn&apos;t paid rent this month</p>
+              </div>
+              <p className="text-lg font-bold text-amber-900">{formatMoney(t.amount)}</p>
+            </div>
+          ))}
+          {unpaidTenants.length > 5 && (
+            <p className="text-sm text-slate-500">+ {unpaidTenants.length - 5} more unpaid — <a href="/payments" className="font-semibold text-amber-700 hover:underline">view all in Payments</a></p>
+          )}
+          {vacantCount > 0 && (
+            <div className="flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50 px-5 py-4">
+              <p className="font-semibold text-purple-900">{vacantCount} unit{vacantCount === 1 ? "" : "s"} vacant</p>
+              <a href="/units" className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800">View Units</a>
+            </div>
+          )}
+          {maintenanceCount > 0 && (
+            <div className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-5 py-4">
+              <p className="font-semibold text-rose-900">
+                {maintenanceCount} open maintenance {maintenanceCount === 1 ? "request" : "requests"}
+                {urgentMaintenance > 0 && ` (${urgentMaintenance} urgent)`}
+              </p>
+              <a href="/maintenance" className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800">Review</a>
+            </div>
+          )}
+          {complaintCount > 0 && (
+            <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-5 py-4">
+              <p className="font-semibold text-blue-900">{complaintCount} open complaint{complaintCount === 1 ? "" : "s"}</p>
+              <a href="/complaints" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">Review</a>
+            </div>
+          )}
         </div>
+      </div>
+    )}
+    {!loading && unpaidTenants.length === 0 && vacantCount === 0 && maintenanceCount === 0 && complaintCount === 0 && (
+      <div className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center">
+        <p className="font-semibold text-emerald-900">Everything looks good — no rent, vacancy, maintenance, or complaint issues right now.</p>
       </div>
     )}
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 className="text-xl font-bold">Quick Navigation</h3>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-8">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-9">
         <a href="/properties" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🏠 Properties</a>
         <a href="/units" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🚪 Units</a>
         <a href="/tenants" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">👥 Tenants</a>
         <a href="/payments" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">💰 Payments</a>
         <a href="/maintenance" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🔧 Maintenance</a>
         <a href="/complaints" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">📢 Complaints{complaintCount > 0 ? " (" + complaintCount + ")" : ""}</a>
+        <a href="/announcements" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">📣 Announcements</a>
         <a href="/ai-assistant" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🤖 AI Assistant</a>
         <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">💳 Payment Settings</a>
       </div>
