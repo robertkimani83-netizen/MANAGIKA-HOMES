@@ -20,6 +20,7 @@ const [category, setCategory] = useState("plumbing");
 const [title, setTitle] = useState("");
 const [description, setDescription] = useState("");
 const [urgency, setUrgency] = useState("normal");
+const [loadedAt] = useState(() => Date.now());
 
 useEffect(() => {
 async function init() {
@@ -108,6 +109,41 @@ assigned: "bg-blue-100 text-blue-700",
 in_progress: "bg-blue-100 text-blue-700",
 completed: "bg-green-100 text-green-700",
 };
+
+// Visual "how far along is this repair" tracker - submitted -> assigned
+// -> in progress -> completed - so a landlord can see progress at a
+// glance instead of just a status word.
+const STAGES = [
+{ key: "submitted", label: "Received", dot: "bg-red-500" },
+{ key: "assigned", label: "Assigned", dot: "bg-amber-500" },
+{ key: "in_progress", label: "In Progress", dot: "bg-blue-500" },
+{ key: "completed", label: "Completed", dot: "bg-green-500" },
+];
+
+// Takes "now" as a parameter (captured once in state, see loadedAt
+// below) rather than calling Date.now() directly during render, which
+// React's purity rules flag since it makes render output depend on a
+// live clock instead of only on props/state.
+function timeAgo(iso: string, now: number) {
+const then = new Date(iso).getTime();
+const diffMs = now - then;
+const hours = Math.floor(diffMs / 3600000);
+if (hours < 1) return "just now";
+if (hours < 24) return hours + "h ago";
+const days = Math.floor(hours / 24);
+return days + "d ago";
+}
+
+function StageTracker({ status }: { status: string }) {
+const currentIndex = STAGES.findIndex((s) => s.key === status);
+return (
+  <div className="flex items-center gap-1">
+    {STAGES.map((stage, i) => (
+      <span key={stage.key} className={"h-2.5 w-2.5 rounded-full " + (i <= currentIndex ? stage.dot : "bg-slate-200")} title={stage.label} />
+    ))}
+  </div>
+);
+}
 
 return (
 <main className="min-h-screen city-skyline-page">
@@ -232,6 +268,10 @@ return (
                       <option value="in_progress">In Progress</option>
                       <option value="completed">Completed</option>
                     </select>
+                    <div className="mt-2 flex items-center gap-2">
+                      <StageTracker status={r.status} />
+                      <span className="text-xs text-slate-400">Submitted {timeAgo(r.created_at, loadedAt)}</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4"><button onClick={() => deleteRequest(r.id)} className="text-sm font-medium text-red-600 hover:underline">Remove</button></td>
                 </tr>
