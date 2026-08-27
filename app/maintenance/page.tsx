@@ -62,12 +62,30 @@ setTenantId(""); setCategory("plumbing"); setTitle(""); setDescription(""); setU
 await loadRequests(landlordId);
 }
 
+// These two mutations go through /api/maintenance/[id] instead of a
+// direct client-side supabase call, because maintenance_requests has no
+// landlord_id column of its own - only the API route can verify
+// ownership (via unit -> property -> landlord_id) before touching
+// anything. A client-side-only check here could be skipped by calling
+// the Supabase client directly from the browser console.
+async function authedFetch(url: string, options: RequestInit) {
+const { data: sessionData } = await supabase.auth.getSession();
+const token = sessionData.session?.access_token || "";
+return fetch(url, {
+  ...options,
+  headers: { ...(options.headers || {}), Authorization: "Bearer " + token },
+});
+}
+
 async function updateStatus(id: string, status: string) {
 if (!landlordId) return;
-const request = requests.find((r) => r.id === id);
-if (!request) { alert("Maintenance request not found."); return; }
-const { error } = await supabase.from("maintenance_requests").update({ status }).eq("id", id);
-if (error) { alert("Error updating status: " + error.message); return; }
+const res = await authedFetch("/api/maintenance/" + id, {
+  method: "PATCH",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ status }),
+});
+const result = await res.json();
+if (!res.ok) { alert("Error updating status: " + (result.error || "unknown error")); return; }
 await loadRequests(landlordId);
 }
 
@@ -75,10 +93,9 @@ async function deleteRequest(id: string) {
 if (!landlordId) return;
 const confirmed = window.confirm("Are you sure you want to remove this maintenance request?");
 if (!confirmed) return;
-const request = requests.find((r) => r.id === id);
-if (!request) { alert("Maintenance request not found."); return; }
-const { error } = await supabase.from("maintenance_requests").delete().eq("id", id);
-if (error) { alert("Error removing request: " + error.message); return; }
+const res = await authedFetch("/api/maintenance/" + id, { method: "DELETE" });
+const result = await res.json();
+if (!res.ok) { alert("Error removing request: " + (result.error || "unknown error")); return; }
 await loadRequests(landlordId);
 }
 

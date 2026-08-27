@@ -116,8 +116,15 @@ async function deleteUnit(id: string) {
 if (!landlordId) return;
 const confirmed = window.confirm("Are you sure you want to delete this unit?");
 if (!confirmed) return;
-const { error } = await supabase.from("units").delete().eq("id", id);
-if (error) { alert("Error deleting unit: " + error.message); return; }
+// Goes through /api/units/[id] rather than a direct client-side delete,
+// since units have no landlord_id column of their own - only a
+// server-side ownership check (via property_id -> properties.landlord_id)
+// can actually stop one landlord from deleting another's unit.
+const { data: sessionData } = await supabase.auth.getSession();
+const token = sessionData.session?.access_token || "";
+const res = await fetch("/api/units/" + id, { method: "DELETE", headers: { Authorization: "Bearer " + token } });
+const result = await res.json();
+if (!res.ok) { alert("Error deleting unit: " + (result.error || "unknown error")); return; }
 loadUnits(landlordId);
 }
 
