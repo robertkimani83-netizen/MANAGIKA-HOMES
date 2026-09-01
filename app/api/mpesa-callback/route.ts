@@ -53,7 +53,12 @@ if (resultCode === 0) {
     const { data: tenantRow } = await supabaseAdmin.from("tenants").select("unit_id").eq("id", tenantId).maybeSingle();
     unitId = tenantRow?.unit_id || null;
   } else {
-    const phoneStr = String(phoneNumber);
+    // Strip to digits only before building the .or() filter string below -
+    // that string is handed straight to PostgREST's filter grammar (commas
+    // and parentheses are syntax there), so a PhoneNumber value that isn't
+    // pure digits could otherwise inject extra filter clauses and match a
+    // different tenant's record than intended.
+    const phoneStr = String(phoneNumber).replace(/\D/g, "");
     const localFormat = phoneStr.startsWith("254") ? "0" + phoneStr.slice(3) : phoneStr;
     const { data: tenantRow } = await supabaseAdmin.from("tenants").select("id, unit_id").or("phone_number.eq." + phoneStr + ",phone_number.eq." + localFormat).maybeSingle();
     tenantId = tenantRow?.id || null;
