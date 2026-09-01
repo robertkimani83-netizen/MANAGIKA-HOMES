@@ -151,6 +151,26 @@ return (
     </div>
   </section>
   <section className="mx-auto max-w-7xl px-6 py-8">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <aside className="w-full shrink-0 lg:w-60">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-6">
+          <h3 className="text-lg font-bold">Quick Navigation</h3>
+          <nav className="mt-4 flex flex-col gap-2">
+            <a href="/properties" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🏠 Properties</a>
+            <a href="/units" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🚪 Units</a>
+            <a href="/tenants" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">👥 Tenants</a>
+            <a href="/payments" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💰 Payments</a>
+            <a href="/maintenance" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🔧 Maintenance</a>
+            <a href="/complaints" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📢 Complaints{complaintCount > 0 ? " (" + complaintCount + ")" : ""}</a>
+            <a href="/announcements" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📣 Announcements</a>
+            <a href="/ai-assistant" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🤖 AI Assistant</a>
+            <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💳 Payment Settings</a>
+            <a href="/team" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🧑‍🤝‍🧑 Team &amp; Caretakers</a>
+            <a href="/screening" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🔎 Tenant Screening</a>
+          </nav>
+        </div>
+      </aside>
+      <div className="min-w-0 flex-1">
     <div className="mb-8">
       <div className="flex items-center gap-2 overflow-x-auto pb-4">
         {steps.map((step, index) => (
@@ -272,20 +292,6 @@ return (
         </div>
       </div>
     )}
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h3 className="text-xl font-bold">Quick Navigation</h3>
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        <a href="/properties" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🏠 Properties</a>
-        <a href="/units" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🚪 Units</a>
-        <a href="/tenants" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">👥 Tenants</a>
-        <a href="/payments" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">💰 Payments</a>
-        <a href="/maintenance" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🔧 Maintenance</a>
-        <a href="/complaints" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">📢 Complaints{complaintCount > 0 ? " (" + complaintCount + ")" : ""}</a>
-        <a href="/announcements" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">📣 Announcements</a>
-        <a href="/ai-assistant" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🤖 AI Assistant</a>
-        <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">💳 Payment Settings</a>
-        <a href="/team" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🧑‍🤝‍🧑 Team &amp; Caretakers</a>
-        <a href="/screening" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🔎 Tenant Screening</a>
       </div>
     </div>
   </section>
