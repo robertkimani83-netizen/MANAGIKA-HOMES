@@ -20,12 +20,40 @@ function annualPrice(monthly: number) {
   return Math.round(monthly * 12 * 0.8);
 }
 
+const FAQS = [
+  {
+    q: "Is my rent money safe?",
+    a: "Yes — Managika Homes never touches your rent. Tenants pay straight into your own M-Pesa Paybill, Till, or bank account. We only read the payment confirmation to keep your records up to date.",
+  },
+  {
+    q: "I already have an M-Pesa Paybill or Till. Can I use it?",
+    a: "Yes. During setup you connect your existing Paybill, Till, or bank details. Nothing changes about where the money lands — Managika Homes just tracks and reconciles it for you.",
+  },
+  {
+    q: "Can I bring in my existing tenants and units?",
+    a: "Yes. You can add properties, units, and tenants one by one, or bulk-import them so you're not starting from zero.",
+  },
+  {
+    q: "Do my tenants need to download an app?",
+    a: "No app download needed — tenants use a simple web portal to see their balance, pay, and reach you. It works on any smartphone browser.",
+  },
+  {
+    q: "What happens if I want to cancel?",
+    a: "There's no lock-in contract. Cancel anytime from your billing page — you keep access until the end of your current paid period.",
+  },
+  {
+    q: "How is pricing calculated?",
+    a: "Each plan has a monthly minimum that covers a band of units, then a per-unit rate as your portfolio grows — so a 4-unit property and a 400-unit estate both pay a fair rate. See the pricing table above for exact numbers.",
+  },
+];
+
 export default function Home() {
   const router = useRouter();
   const skylineRef = useRef<HTMLDivElement>(null);
 
   const [selectedPlan, setSelectedPlan] = useState("growth");
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -204,6 +232,30 @@ export default function Home() {
         .lp-btn-ghost:hover{ border-color:rgba(240,234,217,0.7); }
         .lp-hero-note{ margin-top:16px; font-size:13px; color:#93a1b8; }
 
+        .lp-mockup{ position:relative; z-index:2; max-width:520px; margin:44px auto 0; background:#0f1d33; border:1px solid rgba(227,171,95,0.25); border-radius:14px; overflow:hidden; box-shadow:0 30px 60px -20px rgba(0,0,0,0.55); transform:rotate(-0.6deg); text-align:left; }
+        .lp-mockup-bar{ display:flex; align-items:center; gap:6px; padding:10px 14px; background:#0a1526; border-bottom:1px solid rgba(227,171,95,0.15); }
+        .lp-mockup-bar span{ width:8px; height:8px; border-radius:50%; background:rgba(240,234,217,0.25); display:inline-block; }
+        .lp-mockup-url{ margin-left:10px; font-size:11px; color:#93a1b8; font-family:"IBM Plex Mono", monospace; }
+        .lp-mockup-body{ padding:18px; }
+        .lp-mockup-stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+        .lp-mockup-stats > div{ background:rgba(227,171,95,0.08); border:1px solid rgba(227,171,95,0.18); border-radius:9px; padding:10px 8px; text-align:center; }
+        .lp-mockup-stat-num{ display:block; font-size:15px; font-weight:600; color:#f0ead9; }
+        .lp-mockup-stats > div span:last-child{ display:block; font-size:10px; color:#93a1b8; margin-top:3px; }
+        .lp-mockup-rows{ display:flex; flex-direction:column; gap:8px; }
+        .lp-mockup-row{ display:flex; align-items:center; justify-content:space-between; background:rgba(240,234,217,0.05); border-radius:8px; padding:9px 12px; }
+        .lp-mockup-name{ height:8px; width:42%; border-radius:4px; background:rgba(240,234,217,0.18); }
+        .lp-mockup-pill{ font-size:10px; font-weight:700; letter-spacing:0.02em; padding:4px 9px; border-radius:999px; }
+        .lp-mockup-pill.paid{ background:rgba(63,122,92,0.22); color:#8fd5b3; }
+        .lp-mockup-pill.due{ background:rgba(178,87,87,0.22); color:#e2a1a1; }
+        @media (max-width:520px){ .lp-mockup{ transform:none; margin-top:32px; } }
+
+        .lp-faq{ display:flex; flex-direction:column; gap:10px; max-width:760px; margin:0 auto; }
+        .lp-faq-item{ background:var(--card); border:1px solid var(--card-border); border-radius:12px; overflow:hidden; }
+        .lp-faq-item.open{ border-color:var(--gold); }
+        .lp-faq-q{ width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; text-align:left; background:none; border:none; padding:18px 20px; font-family:inherit; font-size:15px; font-weight:600; color:var(--ink); cursor:pointer; }
+        .lp-faq-icon{ flex:none; font-size:18px; color:var(--gold); font-weight:700; }
+        .lp-faq-a{ margin:0; padding:0 20px 18px; color:var(--muted); font-size:14.5px; max-width:65ch; }
+
         .lp-skyline{ position:relative; height:clamp(90px,14vw,150px); margin-top:clamp(30px,6vw,60px); z-index:1; }
         .lp-skyline .bld{ position:absolute; bottom:0; background:#0e192c; border-top:1px solid rgba(227,171,95,0.15); }
         @media (prefers-color-scheme: dark){ .lp-skyline .bld{ background:#0a1220; } }
@@ -329,6 +381,26 @@ export default function Home() {
               <a className="lp-btn lp-btn-ghost" href="#pricing">See pricing</a>
             </div>
             <p className="lp-hero-note">Already have an account? <a href="/landlord/login" style={{ textDecoration: "underline" }}>Log in</a></p>
+
+            <div className="lp-mockup" aria-hidden="true">
+              <div className="lp-mockup-bar">
+                <span></span><span></span><span></span>
+                <div className="lp-mockup-url">managikahomes.co.ke/dashboard</div>
+              </div>
+              <div className="lp-mockup-body">
+                <div className="lp-mockup-stats">
+                  <div><span className="lp-mockup-stat-num mono">42</span><span>Units</span></div>
+                  <div><span className="lp-mockup-stat-num mono">KSh 380K</span><span>Collected this month</span></div>
+                  <div><span className="lp-mockup-stat-num mono">3</span><span>Overdue</span></div>
+                </div>
+                <div className="lp-mockup-rows">
+                  <div className="lp-mockup-row"><span className="lp-mockup-name"></span><span className="lp-mockup-pill paid">Paid</span></div>
+                  <div className="lp-mockup-row"><span className="lp-mockup-name"></span><span className="lp-mockup-pill paid">Paid</span></div>
+                  <div className="lp-mockup-row"><span className="lp-mockup-name"></span><span className="lp-mockup-pill due">Due</span></div>
+                  <div className="lp-mockup-row"><span className="lp-mockup-name"></span><span className="lp-mockup-pill paid">Paid</span></div>
+                </div>
+              </div>
+            </div>
           </div>
           <div className="lp-skyline" aria-hidden="true" ref={skylineRef}></div>
         </div>
@@ -564,6 +636,24 @@ export default function Home() {
               </button>
 
               <p className="lp-start-login">Already have an account? <a href="/landlord/login">Log in</a></p>
+            </div>
+          </section>
+
+          <section id="faq">
+            <div className="lp-section-head lp-center">
+              <span className="lp-kicker">Questions</span>
+              <h2>Frequently asked questions</h2>
+            </div>
+            <div className="lp-faq">
+              {FAQS.map((item, i) => (
+                <div className={"lp-faq-item" + (openFaq === i ? " open" : "")} key={item.q}>
+                  <button type="button" className="lp-faq-q" onClick={() => setOpenFaq(openFaq === i ? null : i)}>
+                    <span>{item.q}</span>
+                    <span className="lp-faq-icon">{openFaq === i ? "−" : "+"}</span>
+                  </button>
+                  {openFaq === i && <p className="lp-faq-a">{item.a}</p>}
+                </div>
+              ))}
             </div>
           </section>
         </div>
