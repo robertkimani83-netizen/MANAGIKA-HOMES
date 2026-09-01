@@ -47,6 +47,18 @@ loadProperties(landlordId);
 
 async function deleteProperty(id: string) {
 if (!landlordId) return;
+// Check for units attached to this property first. Whether the
+// database's foreign key would cascade-delete those units (and their
+// tenants, invoices, payments...) or simply block the delete with a
+// constraint error isn't something we can verify without live DB
+// access, so instead of relying on either behavior, refuse up front
+// and tell the landlord exactly what to do about it.
+const { count, error: countError } = await supabase.from("units").select("id", { count: "exact", head: true }).eq("property_id", id);
+if (countError) { alert("Could not check this property's units: " + countError.message); return; }
+if (count && count > 0) {
+  alert("This property still has " + count + " unit(s) attached. Please delete or reassign those units first, then delete the property.");
+  return;
+}
 const confirmed = window.confirm("Are you sure you want to delete this property?");
 if (!confirmed) return;
 // Scope the delete to this landlord's own row as a second line of
