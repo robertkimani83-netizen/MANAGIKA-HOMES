@@ -47,7 +47,8 @@ const [description, setDescription] = useState("");
 const [urgency, setUrgency] = useState("normal");
 const [complaintText, setComplaintText] = useState("");
 const [payingBalance, setPayingBalance] = useState(false);
-const [paymentInfo, setPaymentInfo] = useState<any>({ mpesa_enabled: false, bank_enabled: false });
+const [reportingPayment, setReportingPayment] = useState(false);
+const [paymentInfo, setPaymentInfo] = useState<any>({ mpesa_enabled: false, bank_enabled: false, has_pending_claim: false });
 const [authToken, setAuthToken] = useState("");
 const [lastPayment, setLastPayment] = useState<{ amount: number; paidAt: string } | null>(null);
 const [paymentHistory, setPaymentHistory] = useState<{ id: string; amount: number; method: string; reference: string | null; paidAt: string; period: string }[]>([]);
@@ -202,6 +203,25 @@ setPayingBalance(false);
 }
 }
 
+async function reportPayment(method: string) {
+if (!authToken) { alert("Your session expired - please refresh and log in again."); return; }
+setReportingPayment(true);
+try {
+const res = await fetch("/api/tenants/report-payment", {
+method: "POST",
+headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
+body: JSON.stringify({ method }),
+});
+const result = await res.json();
+if (!res.ok) { alert("Could not notify your landlord: " + (result.error || "unknown error")); return; }
+setPaymentInfo((prev: any) => ({ ...prev, has_pending_claim: true }));
+} catch (err: any) {
+alert("Error: " + err.message);
+} finally {
+setReportingPayment(false);
+}
+}
+
 async function signOut() {
 await supabase.auth.signOut();
 router.push("/tenant/login");
@@ -301,7 +321,14 @@ return (
             <p className="font-semibold text-gray-700">Pay via M-Pesa:</p>
             <p className="text-gray-600">{paymentInfo.manual_mpesa_type === "till" ? "Till Number" : "Phone Number"}: {paymentInfo.manual_mpesa_number}</p>
             {paymentInfo.manual_mpesa_name && <p className="text-gray-600">{paymentInfo.manual_mpesa_name}</p>}
-            <p className="mt-1 text-xs text-gray-500">After paying, let your landlord know so they can mark it paid.</p>
+            <p className="mt-1 text-xs text-gray-500">After paying, tap below to let your landlord know.</p>
+            {paymentInfo.has_pending_claim ? (
+              <p className="mt-2 text-xs font-semibold text-amber-600">✓ Marked as paid - waiting for your landlord to confirm.</p>
+            ) : (
+              <button onClick={() => reportPayment("manual_mpesa")} disabled={reportingPayment} className="mt-2 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+                {reportingPayment ? "Notifying..." : "I've Paid"}
+              </button>
+            )}
           </div>
         )}
         {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.bank_enabled && (
@@ -311,7 +338,14 @@ return (
             <p className="text-gray-600">{paymentInfo.bank_account_name}</p>
             <p className="text-gray-600">Acc: {paymentInfo.bank_account_number}</p>
             {paymentInfo.bank_branch && <p className="text-gray-600">Branch: {paymentInfo.bank_branch}</p>}
-            <p className="mt-1 text-xs text-gray-500">After transferring, let your landlord know so they can mark it paid.</p>
+            <p className="mt-1 text-xs text-gray-500">After transferring, tap below to let your landlord know.</p>
+            {paymentInfo.has_pending_claim ? (
+              <p className="mt-2 text-xs font-semibold text-amber-600">✓ Marked as paid - waiting for your landlord to confirm.</p>
+            ) : (
+              <button onClick={() => reportPayment("bank")} disabled={reportingPayment} className="mt-2 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+                {reportingPayment ? "Notifying..." : "I've Paid"}
+              </button>
+            )}
           </div>
         )}
         {currentInvoice?.status !== "paid" && tenant.units && !paymentInfo.mpesa_enabled && !paymentInfo.manual_mpesa_enabled && !paymentInfo.bank_enabled && (

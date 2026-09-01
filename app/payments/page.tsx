@@ -23,6 +23,16 @@ invoices: { id: string; billing_period: string; total_due: number; status: strin
 
 type TenantSummary = { tenant: Tenant; expected: number; paid: number; balance: number; status: string };
 
+type PaymentClaim = {
+id: string;
+billing_period: string | null;
+amount: number | null;
+method: string;
+status: string;
+created_at: string;
+tenants: { full_name: string; phone_number: string | null; units: { unit_number: string } | null } | null;
+};
+
 function currentPeriod() {
 const d = new Date();
 const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -41,6 +51,10 @@ const [amount, setAmount] = useState("");
 const [method, setMethod] = useState("mpesa");
 const [reference, setReference] = useState("");
 const [sendingId, setSendingId] = useState<string | null>(null);
+const [claims, setClaims] = useState<PaymentClaim[]>([]);
+const [loadingClaims, setLoadingClaims] = useState(true);
+const [resolvingClaimId, setResolvingClaimId] = useState<string | null>(null);
+const [authToken, setAuthToken] = useState("");
 
 const period = currentPeriod();
 
@@ -49,9 +63,50 @@ async function init() {
 const { data } = await supabase.auth.getUser();
 if (!data.user) { router.push("/landlord/login"); return; }
 setLandlordId(data.user.id);
+const { data: sessionData } = await supabase.auth.getSession();
+setAuthToken(sessionData.session?.access_token || "");
 }
 init();
 }, [router]);
+
+async function loadClaims(token: string) {
+setLoadingClaims(true);
+try {
+const res = await fetch("/api/landlord/payment-claims", { headers: { Authorization: "Bearer " + token } });
+const result = await res.json();
+if (res.ok) setClaims(result.claims || []);
+} catch (e) {
+setClaims([]);
+} finally {
+setLoadingClaims(false);
+}
+}
+
+useEffect(() => {
+if (!authToken) return;
+loadClaims(authToken);
+}, [authToken]);
+
+async function resolveClaim(claim: PaymentClaim, action: "confirm" | "dismiss") {
+if (!authToken || !landlordId) return;
+if (action === "dismiss" && !confirm("Dismiss this payment report? Only do this if the tenant made a mistake or duplicate report.")) return;
+setResolvingClaimId(claim.id);
+try {
+const res = await fetch("/api/landlord/payment-claims", {
+method: "POST",
+headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
+body: JSON.stringify({ claimId: claim.id, action }),
+});
+const result = await res.json();
+if (!res.ok) { alert("Could not update this report: " + (result.error || "unknown error")); return; }
+loadClaims(authToken);
+if (action === "confirm") loadPayments(landlordId);
+} catch (err: any) {
+alert("Error: " + err.message);
+} finally {
+setResolvingClaimId(null);
+}
+}
 
 async function loadTenants(id: string) {
 const { data, error } = await supabase.from("tenants").select("id, full_name, unit_id, phone_number, units(id, unit_number, base_rent, properties(property_name))").eq("landlord_id", id).eq("status", "active").order("full_name", { ascending: true });
@@ -247,6 +302,36 @@ return (
         <p className="mt-1 text-sm text-slate-400">All recorded payments</p>
       </div>
     </div>
+
+    {(loadingClaims ? false : claims.length > 0) && (
+      <div className="mb-8 overflow-hidden rounded-xl border border-amber-300 bg-amber-50 shadow-sm">
+        <div className="border-b border-amber-200 px-6 py-5">
+          <h3 className="text-xl font-semibold text-amber-900">Tenant-Reported Payments</h3>
+          <p className="mt-1 text-sm text-amber-700">Tenants who tapped &quot;I&apos;ve Paid&quot; after sending money manually. Confirm once you&apos;ve verified it landed.</p>
+        </div>
+        <div className="divide-y divide-amber-100">
+          {claims.map((claim) => (
+            <div key={claim.id} className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium text-slate-900">{claim.tenants?.full_name || "Unknown tenant"} — {claim.tenants?.units?.unit_number || "Unassigned"}</p>
+                <p className="text-sm text-slate-500">
+                  {claim.billing_period || "—"} · {claim.method === "bank" ? "Bank transfer" : "Manual M-Pesa"}
+                  {claim.amount ? " · KSh " + Number(claim.amount).toLocaleString() : ""}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => resolveClaim(claim, "confirm")} disabled={resolvingClaimId === claim.id} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
+                  {resolvingClaimId === claim.id ? "Working..." : "Confirm"}
+                </button>
+                <button onClick={() => resolveClaim(claim, "dismiss")} disabled={resolvingClaimId === claim.id} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
 
     <div className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
       <div className="border-b px-6 py-5">
