@@ -172,25 +172,22 @@ return (
       </aside>
       <div className="min-w-0 flex-1">
     <div className="mb-8">
-      <div className="flex items-center gap-2 overflow-x-auto pb-4">
-        {steps.map((step, index) => (
-          <div key={step.number} className="flex min-w-[250px] flex-1 items-center">
-            <div className={`w-full rounded-2xl border ${step.title === "Properties" ? "border-blue-200" : step.title === "Units" ? "border-purple-200" : step.title === "Tenants" ? "border-emerald-200" : step.title === "Payments" ? "border-amber-200" : "border-rose-200"} bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md`}>
-              <div className="mb-4 flex items-center justify-between">
-                <span className="text-2xl font-bold text-slate-400">{step.number}</span>
-                <span className={`flex h-11 w-11 items-center justify-center rounded-xl text-2xl ${step.title === "Properties" ? "bg-blue-100" : step.title === "Units" ? "bg-purple-100" : step.title === "Tenants" ? "bg-emerald-100" : step.title === "Payments" ? "bg-amber-100" : "bg-rose-100"}`}>{step.icon}</span>
-              </div>
-              <h3 className="text-xl font-bold">{step.title}</h3>
-              <p className="mt-2 min-h-[48px] text-sm leading-6 text-slate-500">{step.description}</p>
-              <div className={`mt-5 rounded-xl p-4 ${step.title === "Properties" ? "bg-blue-50" : step.title === "Units" ? "bg-purple-50" : step.title === "Tenants" ? "bg-emerald-50" : step.title === "Payments" ? "bg-amber-50" : "bg-rose-50"}`}>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{step.label}</p>
-                <p className="mt-1 text-2xl font-bold text-slate-900">
-                  {loading ? "—" : step.title === "Payments" ? formatMoney(step.value) : step.title === "Maintenance" && urgentMaintenance > 0 ? `${step.value} (${urgentMaintenance} urgent)` : step.value}
-                </p>
-              </div>
-              <a href={step.href} className={`mt-5 flex items-center justify-center rounded-lg px-4 py-3 text-sm font-semibold text-white transition ${step.title === "Properties" ? "bg-blue-600 hover:bg-blue-700" : step.title === "Units" ? "bg-purple-600 hover:bg-purple-700" : step.title === "Tenants" ? "bg-emerald-600 hover:bg-emerald-700" : step.title === "Payments" ? "bg-amber-600 hover:bg-amber-700" : "bg-rose-600 hover:bg-rose-700"}`}>{step.button}</a>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {steps.map((step) => (
+          <div key={step.number} className={`flex flex-col rounded-xl border ${step.title === "Properties" ? "border-blue-200" : step.title === "Units" ? "border-purple-200" : step.title === "Tenants" ? "border-emerald-200" : step.title === "Payments" ? "border-amber-200" : "border-rose-200"} bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md`}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-lg font-bold text-slate-400">{step.number}</span>
+              <span className={`flex h-9 w-9 items-center justify-center rounded-lg text-lg ${step.title === "Properties" ? "bg-blue-100" : step.title === "Units" ? "bg-purple-100" : step.title === "Tenants" ? "bg-emerald-100" : step.title === "Payments" ? "bg-amber-100" : "bg-rose-100"}`}>{step.icon}</span>
             </div>
-            {index < steps.length - 1 && (<div className="hidden px-2 text-2xl font-bold text-slate-400 xl:block">→</div>)}
+            <h3 className="text-base font-bold">{step.title}</h3>
+            <p className="mt-1 min-h-[36px] text-xs leading-5 text-slate-500">{step.description}</p>
+            <div className={`mt-3 rounded-lg p-3 ${step.title === "Properties" ? "bg-blue-50" : step.title === "Units" ? "bg-purple-50" : step.title === "Tenants" ? "bg-emerald-50" : step.title === "Payments" ? "bg-amber-50" : "bg-rose-50"}`}>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{step.label}</p>
+              <p className="mt-1 text-lg font-bold text-slate-900">
+                {loading ? "—" : step.title === "Payments" ? formatMoney(step.value) : step.title === "Maintenance" && urgentMaintenance > 0 ? `${step.value} (${urgentMaintenance} urgent)` : step.value}
+              </p>
+            </div>
+            <a href={step.href} className={`mt-3 flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold text-white transition ${step.title === "Properties" ? "bg-blue-600 hover:bg-blue-700" : step.title === "Units" ? "bg-purple-600 hover:bg-purple-700" : step.title === "Tenants" ? "bg-emerald-600 hover:bg-emerald-700" : step.title === "Payments" ? "bg-amber-600 hover:bg-amber-700" : "bg-rose-600 hover:bg-rose-700"}`}>{step.button}</a>
           </div>
         ))}
       </div>
