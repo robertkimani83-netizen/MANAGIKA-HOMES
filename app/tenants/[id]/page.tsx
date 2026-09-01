@@ -140,6 +140,9 @@ if (previousUnitId && previousUnitId !== newUnitId) {
 }
 if (newUnitId) {
   await supabase.from("units").update({ status: "occupied" }).eq("id", newUnitId);
+  // Take the unit off any public "For Rent" listing now that it has a
+  // tenant again - no-op if it never had one.
+  await supabase.from("unit_listings").update({ is_published: false }).eq("unit_id", newUnitId);
 }
 
 const { data: refreshedTenant } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).eq("landlord_id", landlordId).single();

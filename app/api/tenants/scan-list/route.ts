@@ -66,6 +66,21 @@ if (!imageBase64 || !mimeType) {
   return NextResponse.json({ error: "Missing image data" }, { status: 400 });
 }
 
+// The client only lets someone pick an 8MB-or-smaller photo, but that's
+// just a UI convenience - nothing stops a signed-in user from calling this
+// route directly with a much bigger payload. Base64 inflates raw bytes by
+// about a third, so 8MB of photo comes in around 11MB encoded; capping
+// here (same idea as the length cap on /api/ai-assistant) keeps every call
+// bounded so nobody can run up the Gemini bill by sending huge images
+// over and over.
+if (String(imageBase64).length > 12 * 1024 * 1024) {
+  return NextResponse.json({ error: "That photo is too large. Try again with a smaller image or crop it to just the tenant list." }, { status: 400 });
+}
+const ALLOWED_SCAN_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+if (!ALLOWED_SCAN_TYPES.includes(String(mimeType))) {
+  return NextResponse.json({ error: "Please upload a photo (JPG, PNG, WEBP, or HEIC)." }, { status: 400 });
+}
+
 let lastError = "Could not read the document";
 
 for (const model of MODELS) {

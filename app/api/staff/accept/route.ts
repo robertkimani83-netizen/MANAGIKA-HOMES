@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
     const { data: invite, error: inviteError } = await supabaseAdmin
       .from("landlord_staff")
-      .select("id, landlord_id, full_name, email, status")
+      .select("id, landlord_id, full_name, email, status, auth_user_id")
       .eq("invite_token", token)
       .maybeSingle();
 
@@ -30,23 +30,40 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "This invite has already been used or was revoked. Ask your landlord to send a new one." }, { status: 409 });
     }
 
-    const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email: invite.email,
-      password,
-      email_confirm: true,
-    });
+    let authUserId = invite.auth_user_id || null;
 
-    if (createError) {
-      const alreadyExists = /already|exists|registered/i.test(createError.message || "");
-      return NextResponse.json(
-        { error: alreadyExists ? "An account with this email already exists. Try signing in instead." : createError.message },
-        { status: alreadyExists ? 409 : 500 }
-      );
+    if (authUserId) {
+      // Being re-invited after an earlier revoke - their Supabase Auth
+      // account already exists from last time, so reset its password
+      // instead of trying (and failing) to create a duplicate account
+      // with the same email.
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, {
+        password,
+        email_confirm: true,
+      });
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+    } else {
+      const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: invite.email,
+        password,
+        email_confirm: true,
+      });
+
+      if (createError) {
+        const alreadyExists = /already|exists|registered/i.test(createError.message || "");
+        return NextResponse.json(
+          { error: alreadyExists ? "An account with this email already exists. Try signing in instead." : createError.message },
+          { status: alreadyExists ? 409 : 500 }
+        );
+      }
+      authUserId = created.user!.id;
     }
 
     const { error: linkError } = await supabaseAdmin
       .from("landlord_staff")
-      .update({ status: "active", auth_user_id: created.user!.id, accepted_at: new Date().toISOString(), invite_token: null })
+      .update({ status: "active", auth_user_id: authUserId, accepted_at: new Date().toISOString(), invite_token: null })
       .eq("id", invite.id);
 
     if (linkError) {

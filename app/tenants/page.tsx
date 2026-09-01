@@ -107,6 +107,11 @@ if (tenantError) { alert("Error saving tenant: " + tenantError.message); return;
 if (unitId) {
 const { error: unitError } = await supabase.from("units").update({ status: "occupied" }).eq("id", unitId);
 if (unitError) console.error("Unit status error:", unitError);
+// The unit may have had a public "For Rent" listing - now that it has a
+// tenant, take it off the public listing page so nobody inquires about a
+// unit that's no longer available. Silently does nothing if no listing
+// exists for this unit.
+await supabase.from("unit_listings").update({ is_published: false }).eq("unit_id", unitId);
 }
 setFullName(""); setPhone(""); setEmail(""); setUnitId(""); setShowForm(false);
 await loadVacantUnits(landlordId);

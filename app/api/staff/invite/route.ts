@@ -50,9 +50,14 @@ export async function POST(request: Request) {
 
   if (existing) {
     // Re-inviting someone whose access was revoked - reuse the row.
+    // Deliberately NOT clearing auth_user_id: their Supabase Auth account
+    // from the first time they accepted still exists (accounts are never
+    // deleted on revoke), so /api/staff/accept needs to find it again to
+    // reset their password instead of trying to create a duplicate
+    // account with the same email, which Supabase would reject.
     const { error } = await supabaseAdmin
       .from("landlord_staff")
-      .update({ full_name: fullName, invite_token: inviteToken, status: "invited", auth_user_id: null, accepted_at: null })
+      .update({ full_name: fullName, invite_token: inviteToken, status: "invited", accepted_at: null })
       .eq("id", existing.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   } else {
