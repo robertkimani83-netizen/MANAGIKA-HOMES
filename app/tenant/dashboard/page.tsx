@@ -57,9 +57,13 @@ const [myDocuments, setMyDocuments] = useState<any[]>([]);
 useEffect(() => {
 async function init() {
 const { data } = await supabase.auth.getUser();
-if (!data.user || !data.user.email) { router.push("/tenant/login"); return; }
+if (!data.user || (!data.user.email && !data.user.phone)) { router.push("/tenant/login"); return; }
 
-  const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, unit_id, landlord_id, units(unit_number, base_rent, properties(property_name))").eq("email", data.user.email).maybeSingle();
+  // No client-side email/phone filter here on purpose - RLS on the tenants
+  // table already scopes this to exactly the caller's own row, matching by
+  // whichever of email or phone their account was authenticated with. That
+  // lets phone-only tenants (no email on file) load their dashboard too.
+  const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, unit_id, landlord_id, units(unit_number, base_rent, properties(property_name))").maybeSingle();
   if (!tenantRow) { router.push("/tenant/login"); return; }
   setTenant(tenantRow);
 
@@ -116,6 +120,12 @@ if (!data.user || !data.user.email) { router.push("/tenant/login"); return; }
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token || "";
   setAuthToken(token);
+
+  // One-time (no-op after the first time): links this tenant's account to
+  // the phone number on file so they can also sign in with their phone
+  // number, not just email. Fire-and-forget - never blocks the dashboard.
+  fetch("/api/tenants/link-phone", { method: "POST", headers: { Authorization: "Bearer " + token } }).catch(() => {});
+
   try {
     const infoRes = await fetch("/api/tenant-payment-info", { headers: { Authorization: "Bearer " + token } });
     const info = await infoRes.json();

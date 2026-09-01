@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { phoneVariants } from "@/lib/tenant-phone";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -13,9 +14,16 @@ const token = authHeader.replace("Bearer ", "").trim();
 if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
 const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
-if (userError || !userData.user || !userData.user.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+const authedUser = userData?.user;
+if (userError || !authedUser || (!authedUser.email && !authedUser.phone)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-const { data: tenant, error: tenantError } = await supabaseAdmin.from("tenants").select("id, landlord_id").eq("email", userData.user.email).maybeSingle();
+// Tenant may be signed in with either identifier - match on whichever the
+// account has (phone-only accounts have no email on file).
+let tenantQuery = supabaseAdmin.from("tenants").select("id, landlord_id");
+tenantQuery = authedUser.email
+  ? tenantQuery.eq("email", authedUser.email)
+  : tenantQuery.in("phone_number", phoneVariants(authedUser.phone as string));
+const { data: tenant, error: tenantError } = await tenantQuery.maybeSingle();
 if (tenantError || !tenant || !tenant.landlord_id) {
   return NextResponse.json({ mpesa_enabled: false, bank_enabled: false });
 }

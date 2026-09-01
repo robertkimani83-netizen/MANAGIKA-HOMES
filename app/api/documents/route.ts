@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { phoneVariants } from "@/lib/tenant-phone";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -112,8 +113,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ documents: data });
     }
 
-    // Tenant view: their own documents, identified by the authenticated email.
-    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("id").eq("email", user.email).maybeSingle();
+    // Tenant view: their own documents, identified by whichever of email or
+    // phone their account was authenticated with (phone-only accounts have
+    // no email on file).
+    if (!user.email && !user.phone) return NextResponse.json({ documents: [] });
+    let tenantLookup = supabaseAdmin.from("tenants").select("id");
+    tenantLookup = user.email ? tenantLookup.eq("email", user.email) : tenantLookup.in("phone_number", phoneVariants(user.phone as string));
+    const { data: tenantRow } = await tenantLookup.maybeSingle();
     if (!tenantRow) return NextResponse.json({ documents: [] });
 
     const { data, error } = await supabaseAdmin
