@@ -1,0 +1,73 @@
+// This used to be the site's homepage ("/"). It now sits one step behind
+// the actual homepage - the marketing page at app/page.tsx (built for
+// landlords) links here with a "Get Started" button so a visitor can pick
+// whether they're a landlord or a tenant.
+export default function Start() {
+return (
+<main className="min-h-screen bg-slate-50">
+<section className="city-skyline-hero relative flex min-h-screen flex-col justify-between overflow-hidden px-6 py-10">
+<div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
+
+    <div className="mx-auto flex w-full max-w-6xl items-center justify-between">
+      <a href="/" className="rounded-2xl bg-white px-5 py-3 shadow-lg">
+        <h1 className="text-2xl font-extrabold tracking-tight text-black">MANAGIKA HOMES</h1>
+        <p className="text-sm font-bold text-black">Property Management Made Simple</p>
+      </a>
+    </div>
+
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center py-16 text-center">
+      <div className="rounded-3xl bg-white px-6 py-10 shadow-2xl sm:px-12 sm:py-14">
+        <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/60 bg-amber-100 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-amber-800">
+          Property management, reimagined
+        </span>
+
+        <h2 className="mt-6 max-w-3xl text-4xl font-extrabold leading-tight text-black md:text-6xl">
+          Where Landlords and Tenants
+          <span className="block bg-gradient-to-r from-amber-500 via-orange-600 to-amber-500 bg-clip-text text-transparent">Meet, Simply.</span>
+        </h2>
+
+        <p className="mt-6 max-w-xl text-lg font-bold text-black">One home for your properties, your rent, your maintenance and your peace of mind — whichever side of the door you're on.</p>
+
+        <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:justify-center">
+          <a href="/landlord/login" className="rounded-lg bg-amber-500 px-8 py-4 text-base font-bold text-slate-900 shadow-lg shadow-amber-500/20 transition hover:-translate-y-0.5 hover:bg-amber-400 hover:shadow-amber-500/30">I'm a Landlord</a>
+          <a href="/tenant/login" className="rounded-lg border-2 border-slate-400 bg-white px-8 py-4 text-base font-bold text-slate-900 transition hover:-translate-y-0.5 hover:bg-slate-50">I'm a Tenant</a>
+        </div>
+
+        <a href="/" className="mt-6 inline-block text-sm font-bold text-amber-700 underline underline-offset-4 hover:text-amber-800">← Back to Managika Homes</a>
+
+        <div className="mt-8 flex flex-col items-center gap-2 border-t border-slate-200 pt-6">
+          <a href="/managika.apk" download className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-6 py-3 text-sm font-bold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800">
+            📱 Download for Android
+          </a>
+          <p className="max-w-sm text-xs font-semibold text-slate-500">After downloading, open the file and allow installs from this source when prompted.</p>
+        </div>
+      </div>
+    </div>
+
+    <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-4 pt-4 text-center sm:grid-cols-4">
+      <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
+        <p className="text-2xl">🏠</p>
+        <p className="mt-2 text-sm font-bold text-black">Properties & Units</p>
+      </div>
+      <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
+        <p className="text-2xl">💰</p>
+        <p className="mt-2 text-sm font-bold text-black">Rent & Payments</p>
+      </div>
+      <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
+        <p className="text-2xl">🔧</p>
+        <p className="mt-2 text-sm font-bold text-black">Maintenance Requests</p>
+      </div>
+      <div className="rounded-2xl bg-white px-4 py-5 shadow-lg">
+        <p className="text-2xl">👥</p>
+        <p className="mt-2 text-sm font-bold text-black">Tenant Records</p>
+      </div>
+    </div>
+  </section>
+
+  <footer className="border-t bg-white">
+    <div className="mx-auto max-w-6xl px-6 py-6 text-center text-sm text-slate-500">© 2026 Managika Homes. Property management made simple.</div>
+  </footer>
+</main>
+
+);
+}
