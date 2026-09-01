@@ -49,7 +49,11 @@ async function deleteProperty(id: string) {
 if (!landlordId) return;
 const confirmed = window.confirm("Are you sure you want to delete this property?");
 if (!confirmed) return;
-const { error } = await supabase.from("properties").delete().eq("id", id);
+// Scope the delete to this landlord's own row as a second line of
+// defense alongside RLS - matches the pattern used for deleteTenant in
+// app/tenants/page.tsx, so a bad ID can never touch another landlord's
+// property even if a policy is ever misconfigured.
+const { error } = await supabase.from("properties").delete().eq("id", id).eq("landlord_id", landlordId);
 if (error) { alert("Error deleting property: " + error.message); return; }
 loadProperties(landlordId);
 }

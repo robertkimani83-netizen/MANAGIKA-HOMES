@@ -18,7 +18,7 @@ amount_paid: number;
 payment_method: string;
 transaction_reference: string | null;
 paid_at: string;
-invoices: { id: string; billing_period: string; total_due: number; status: string; tenants: { full_name: string } | null; units: { unit_number: string } | null } | null;
+invoices: { id: string; billing_period: string; total_due: number; status: string; tenants: { id: string; full_name: string } | null; units: { unit_number: string } | null } | null;
 };
 
 type TenantSummary = { tenant: Tenant; expected: number; paid: number; balance: number; status: string };
@@ -115,7 +115,7 @@ if (!error && data) setTenants(data as unknown as Tenant[]);
 
 async function loadPayments(id: string) {
 setLoading(true);
-const { data, error } = await supabase.from("payments").select("id, amount_paid, payment_method, transaction_reference, paid_at, invoices!inner(id, billing_period, total_due, status, tenants!inner(full_name, landlord_id), units(unit_number))").eq("invoices.tenants.landlord_id", id).order("paid_at", { ascending: false });
+const { data, error } = await supabase.from("payments").select("id, amount_paid, payment_method, transaction_reference, paid_at, invoices!inner(id, billing_period, total_due, status, tenants!inner(id, full_name, landlord_id), units(unit_number))").eq("invoices.tenants.landlord_id", id).order("paid_at", { ascending: false });
 if (!error && data) setPayments(data as unknown as Payment[]);
 setLoading(false);
 }
@@ -192,7 +192,10 @@ setSendingId(null);
 const currentPayments = payments.filter((p) => p.invoices?.billing_period === period);
 
 const tenantSummaries: TenantSummary[] = tenants.map((tenant) => {
-const tenantPayments = currentPayments.filter((p) => p.invoices?.tenants?.full_name === tenant.full_name);
+// Match by tenant id, not name - two tenants sharing a common name (not
+// rare in practice) would otherwise have their payments merged, making
+// one look paid because of the other's payment.
+const tenantPayments = currentPayments.filter((p) => p.invoices?.tenants?.id === tenant.id);
 const expected = Number(tenant.units?.base_rent) || 0;
 const paid = tenantPayments.reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
 const balance = Math.max(expected - paid, 0);
