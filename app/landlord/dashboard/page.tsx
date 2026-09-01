@@ -1,5 +1,6 @@
 ﻿"use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 function currentPeriod() {
 const d = new Date();
@@ -14,6 +15,7 @@ urgency: string;
 type UnpaidTenant = { name: string; unit: string; amount: number };
 
 export default function LandlordDashboard() {
+const router = useRouter();
 const [propertyCount, setPropertyCount] = useState(0);
 const [unitCount, setUnitCount] = useState(0);
 const [tenantCount, setTenantCount] = useState(0);
@@ -102,6 +104,10 @@ setLoading(true);
 }
 loadStats();
 }, []);
+async function signOut() {
+  await supabase.auth.signOut();
+  router.push("/landlord/login");
+}
 const formatMoney = (amount: number) => "KSh " + amount.toLocaleString();
 const steps = [
 { number: "①", icon: "🏠", title: "Properties", description: "Add and manage your buildings and apartments.", label: "Properties", value: propertyCount, button: "Manage Properties", href: "/properties" },
@@ -118,7 +124,7 @@ return (
 <h1 className="text-2xl font-bold tracking-tight">MANAGIKA HOMES</h1>
 <p className="text-sm text-slate-500">Property Management Made Simple</p>
 </div>
-<a href="/landlord/login" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sign Out</a>
+<button onClick={signOut} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sign Out</button>
 </div>
 </header>
   <section className="city-skyline-hero border-b">

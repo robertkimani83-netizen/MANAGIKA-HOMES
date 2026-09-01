@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { phoneVariants } from "@/lib/tenant-phone";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -45,15 +46,22 @@ const token = authHeader.replace("Bearer ", "").trim();
 if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
 const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
-if (userError || !userData.user || !userData.user.email) {
+const authedUser = userData?.user;
+if (userError || !authedUser || (!authedUser.email && !authedUser.phone)) {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 
-const { data: tenant, error: tenantError } = await supabaseAdmin
+// Tenant may be signed in with either identifier - match on whichever the
+// account has (phone-only accounts, e.g. bulk-imported tenants, have no
+// email on file). Matches the pattern used by tenant-payment-info and
+// report-payment so phone-only tenants can actually pay, not just view.
+let tenantLookup = supabaseAdmin
   .from("tenants")
-  .select("id, full_name, phone_number, landlord_id, unit_id, units(base_rent)")
-  .eq("email", userData.user.email)
-  .maybeSingle();
+  .select("id, full_name, phone_number, landlord_id, unit_id, units(base_rent)");
+tenantLookup = authedUser.email
+  ? tenantLookup.eq("email", authedUser.email)
+  : tenantLookup.in("phone_number", phoneVariants(authedUser.phone as string));
+const { data: tenant, error: tenantError } = await tenantLookup.maybeSingle();
 
 if (tenantError || !tenant || !tenant.landlord_id) {
   return NextResponse.json({ error: "Could not find your tenant record" }, { status: 400 });

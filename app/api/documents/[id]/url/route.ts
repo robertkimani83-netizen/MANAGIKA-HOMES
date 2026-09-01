@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { phoneVariants } from "@/lib/tenant-phone";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -33,8 +34,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const isOwnerLandlord = doc.landlord_id === userData.user.id;
     let isOwnerTenant = false;
+    // Match on whichever identifier this account actually has - phone-only
+    // tenants (bulk-imported, no email on file) need this check too, not
+    // just email-registered ones.
     if (!isOwnerLandlord && userData.user.email) {
       const { data: tenant } = await supabaseAdmin.from("tenants").select("id").eq("id", doc.tenant_id).eq("email", userData.user.email).maybeSingle();
+      isOwnerTenant = !!tenant;
+    } else if (!isOwnerLandlord && userData.user.phone) {
+      const { data: tenant } = await supabaseAdmin.from("tenants").select("id").eq("id", doc.tenant_id).in("phone_number", phoneVariants(userData.user.phone)).maybeSingle();
       isOwnerTenant = !!tenant;
     }
     if (!isOwnerLandlord && !isOwnerTenant) {

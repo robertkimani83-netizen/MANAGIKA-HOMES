@@ -120,7 +120,7 @@ function LandlordLoginInner() {
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-slate-700">Phone Number</label>
-                  <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. +97430849847" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                  <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
                 </div>
               </>
             )}
