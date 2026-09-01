@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { secureCompare } from "@/lib/secure-compare";
 
 function currentPeriod() {
 const d = new Date();
@@ -17,8 +18,9 @@ return "+" + digits;
 }
 
 export async function GET(request: Request) {
-const authHeader = request.headers.get("authorization");
-if (authHeader !== "Bearer " + process.env.CRON_SECRET) {
+const authHeader = request.headers.get("authorization") || "";
+const cronSecret = process.env.CRON_SECRET || "";
+if (!cronSecret || !secureCompare(authHeader, "Bearer " + cronSecret)) {
 return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 

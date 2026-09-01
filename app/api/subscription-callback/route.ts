@@ -1,5 +1,6 @@
 ﻿import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { secureCompare } from "@/lib/secure-compare";
 
 function addPeriod(billingCycle: string) {
   const d = new Date();
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     const { searchParams } = new URL(request.url);
     const suppliedToken = searchParams.get("token") || "";
     const expectedToken = process.env.MANAGIKA_SUBSCRIPTION_CALLBACK_SECRET || "";
-    if (!expectedToken || suppliedToken !== expectedToken) {
+    if (!expectedToken || !secureCompare(suppliedToken, expectedToken)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

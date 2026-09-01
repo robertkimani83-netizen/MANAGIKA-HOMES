@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { secureCompare } from "@/lib/secure-compare";
 
 export async function POST(request: Request) {
 try {
@@ -11,7 +12,7 @@ try {
 const { searchParams } = new URL(request.url);
 const suppliedToken = searchParams.get("token") || "";
 const expectedToken = process.env.MPESA_CALLBACK_SECRET || "";
-if (!expectedToken || suppliedToken !== expectedToken) {
+if (!expectedToken || !secureCompare(suppliedToken, expectedToken)) {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 

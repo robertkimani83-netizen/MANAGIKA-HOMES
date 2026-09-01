@@ -1,5 +1,6 @@
 ﻿import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { secureCompare } from "@/lib/secure-compare";
 
 // Runs on a schedule (see vercel.json). Finds landlord subscriptions that
 // say "active" but whose paid period has actually run out, and flips them
@@ -10,7 +11,8 @@ export async function GET(request: Request) {
   try {
     const authHeader = request.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "").trim();
-    if (!token || token !== process.env.CRON_SECRET) {
+    const cronSecret = process.env.CRON_SECRET || "";
+    if (!token || !cronSecret || !secureCompare(token, cronSecret)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
