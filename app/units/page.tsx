@@ -292,7 +292,12 @@ return (
                   <td className="px-6 py-4">{unit.properties?.property_name || "—"}</td>
                   <td className="px-6 py-4">KSh {Number(unit.base_rent).toLocaleString()}</td>
                   <td className="px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold capitalize " + statusPill(unit.status)}>{unit.status}</span></td>
-                  <td className="px-6 py-4"><button onClick={() => deleteUnit(unit.id)} className="text-sm font-medium text-red-600 hover:underline">Delete</button></td>
+                  <td className="px-6 py-4 space-x-3">
+                    {unit.status === "vacant" && (
+                      <a href={"/units/" + unit.id + "/listing"} className="text-sm font-medium text-amber-700 hover:underline">Listing</a>
+                    )}
+                    <button onClick={() => deleteUnit(unit.id)} className="text-sm font-medium text-red-600 hover:underline">Delete</button>
+                  </td>
                 </tr>
               ))
             )}

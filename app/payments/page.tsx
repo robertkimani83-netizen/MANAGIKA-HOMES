@@ -113,6 +113,29 @@ const { data, error } = await supabase.from("tenants").select("id, full_name, un
 if (!error && data) setTenants(data as unknown as Tenant[]);
 }
 
+async function exportLedger() {
+if (!authToken) { alert("Please wait for the page to finish loading and try again."); return; }
+try {
+  const res = await fetch("/api/landlord/ledger-export", { headers: { Authorization: "Bearer " + authToken } });
+  if (!res.ok) {
+    const result = await res.json().catch(() => ({}));
+    alert("Could not export: " + (result.error || "unknown error"));
+    return;
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "managika-ledger-" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+} catch (e: any) {
+  alert("Could not export: " + (e.message || "unknown error"));
+}
+}
+
 async function loadPayments(id: string) {
 setLoading(true);
 const { data, error } = await supabase.from("payments").select("id, amount_paid, payment_method, transaction_reference, paid_at, invoices!inner(id, billing_period, total_due, status, tenants!inner(id, full_name, landlord_id), units(unit_number))").eq("invoices.tenants.landlord_id", id).order("paid_at", { ascending: false });
@@ -239,7 +262,10 @@ return (
           <p className="mt-1 text-slate-500">Track rent, payments, invoices and balances — {period}.</p>
         </div>
       </div>
-      <button onClick={() => setShowForm(true)} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Record Payment</button>
+      <div className="flex gap-3">
+        <button onClick={exportLedger} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition">⬇ Export CSV</button>
+        <button onClick={() => setShowForm(true)} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Record Payment</button>
+      </div>
     </div>
 
     {showForm && (

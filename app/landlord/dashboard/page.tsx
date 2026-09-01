@@ -29,6 +29,7 @@ const [maintenanceCount, setMaintenanceCount] = useState(0);
 const [urgentMaintenance, setUrgentMaintenance] = useState(0);
 const [complaintCount, setComplaintCount] = useState(0);
 const [loading, setLoading] = useState(true);
+const [trend, setTrend] = useState<{ period: string; label: string; totalDue: number; totalCollected: number; collectionRate: number | null }[]>([]);
 useEffect(() => {
 async function loadStats() {
 setLoading(true);
@@ -103,6 +104,21 @@ setLoading(true);
   setLoading(false);
 }
 loadStats();
+}, []);
+useEffect(() => {
+async function loadTrend() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return;
+  try {
+    const res = await fetch("/api/landlord/trends", { headers: { Authorization: "Bearer " + data.session.access_token } });
+    if (!res.ok) return;
+    const result = await res.json();
+    setTrend(result.trend || []);
+  } catch (e) {
+    // Trend chart is a nice-to-have - a failed fetch just means it doesn't render.
+  }
+}
+loadTrend();
 }, []);
 async function signOut() {
   await supabase.auth.signOut();
@@ -234,9 +250,31 @@ return (
         <p className="font-semibold text-emerald-900">Everything looks good — no rent, vacancy, maintenance, or complaint issues right now.</p>
       </div>
     )}
+    {trend.length > 0 && trend.some((t) => t.totalDue > 0) && (
+      <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Collection Rate — Last 6 Months</h3>
+        <p className="mt-1 text-sm text-slate-500">Rent actually collected vs. rent that was due, month by month.</p>
+        <div className="mt-6 flex items-end justify-between gap-3" style={{ height: "160px" }}>
+          {trend.map((t) => {
+            const rate = t.collectionRate;
+            const barHeight = rate === null ? 4 : Math.max(4, rate);
+            const barColor = rate === null ? "bg-slate-200" : rate >= 90 ? "bg-emerald-500" : rate >= 60 ? "bg-amber-500" : "bg-rose-500";
+            return (
+              <div key={t.period} className="flex flex-1 flex-col items-center justify-end gap-2">
+                <p className="text-xs font-semibold text-slate-600">{rate === null ? "—" : rate + "%"}</p>
+                <div className="flex w-full items-end justify-center" style={{ height: "110px" }}>
+                  <div className={"w-8 rounded-t-md " + barColor} style={{ height: barHeight + "%" }} title={t.period + ": " + formatMoney(t.totalCollected) + " of " + formatMoney(t.totalDue)} />
+                </div>
+                <p className="text-xs text-slate-500">{t.label}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )}
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 className="text-xl font-bold">Quick Navigation</h3>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-9">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-11">
         <a href="/properties" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🏠 Properties</a>
         <a href="/units" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🚪 Units</a>
         <a href="/tenants" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">👥 Tenants</a>
@@ -246,6 +284,8 @@ return (
         <a href="/announcements" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">📣 Announcements</a>
         <a href="/ai-assistant" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🤖 AI Assistant</a>
         <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">💳 Payment Settings</a>
+        <a href="/team" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🧑‍🤝‍🧑 Team &amp; Caretakers</a>
+        <a href="/screening" className="rounded-xl border border-slate-200 px-4 py-4 text-center font-semibold hover:bg-slate-50">🔎 Tenant Screening</a>
       </div>
     </div>
   </section>
