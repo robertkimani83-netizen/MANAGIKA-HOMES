@@ -19,11 +19,14 @@ const [dataSummary, setDataSummary] = useState("");
 const [messages, setMessages] = useState<Message[]>([]);
 const [question, setQuestion] = useState("");
 const [asking, setAsking] = useState(false);
+const [authToken, setAuthToken] = useState("");
 
 useEffect(() => {
 async function init() {
   const { data } = await supabase.auth.getUser();
   if (!data.user) { router.push("/landlord/login"); return; }
+  const { data: sessionData } = await supabase.auth.getSession();
+  setAuthToken(sessionData.session?.access_token || "");
   await loadSummary(data.user.id);
   setLoading(false);
 }
@@ -101,7 +104,7 @@ setAsking(true);
 try {
   const res = await fetch("/api/ai-assistant", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
     body: JSON.stringify({ question: q, context: dataSummary }),
   });
   const result = await res.json();

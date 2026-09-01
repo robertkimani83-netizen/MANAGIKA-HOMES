@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
+const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
+const supabaseAuth = createClient(supabaseUrl, anonKey);
 
 const MODELS = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"];
 
@@ -19,6 +25,18 @@ return { ok: response.ok, data };
 
 export async function POST(request: Request) {
 try {
+// Must be a signed-in landlord or tenant - this route spends our own paid
+// Gemini API quota per call, so it can never be left open to anonymous
+// requests. The context/question content is still whatever the caller's
+// own page put together (already scoped by that page's own auth+RLS), so
+// this check only needs to confirm SOME real Managika Homes user is
+// asking - not which one.
+const authHeader = request.headers.get("authorization") || "";
+const token = authHeader.replace("Bearer ", "").trim();
+if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
+if (userError || !userData.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
 const body = await request.json();
 const { question, context } = body;
 

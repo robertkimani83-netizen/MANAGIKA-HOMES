@@ -13,13 +13,21 @@ const [dataSummary, setDataSummary] = useState("");
 const [messages, setMessages] = useState<Message[]>([]);
 const [question, setQuestion] = useState("");
 const [asking, setAsking] = useState(false);
+const [authToken, setAuthToken] = useState("");
 
 useEffect(() => {
 async function init() {
   const { data } = await supabase.auth.getUser();
-  if (!data.user || !data.user.email) { router.push("/tenant/login"); return; }
+  if (!data.user || (!data.user.email && !data.user.phone)) { router.push("/tenant/login"); return; }
+  const { data: sessionData } = await supabase.auth.getSession();
+  setAuthToken(sessionData.session?.access_token || "");
 
-  const { data: tenantRowData } = await supabase.from("tenants").select("id, full_name, unit_id, units(unit_number, base_rent, properties(property_name))").eq("email", data.user.email).maybeSingle();
+  // No client-side email/phone filter here on purpose (matching
+  // app/tenant/dashboard/page.tsx) - RLS on the tenants table already
+  // scopes this to exactly the caller's own row, whichever of email or
+  // phone their account was authenticated with. That lets phone-only
+  // tenants (no email on file) reach this page too.
+  const { data: tenantRowData } = await supabase.from("tenants").select("id, full_name, unit_id, units(unit_number, base_rent, properties(property_name))").maybeSingle();
   if (!tenantRowData) { router.push("/tenant/login"); return; }
   const tenantRow: any = tenantRowData;
 
@@ -51,7 +59,7 @@ setAsking(true);
 try {
   const res = await fetch("/api/ai-assistant", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + authToken },
     body: JSON.stringify({ question: q, context: dataSummary }),
   });
   const result = await res.json();
