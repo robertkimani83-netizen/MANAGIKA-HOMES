@@ -1,13 +1,38 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
-// The site's homepage - a landlord-facing marketing page (pricing, trust,
-// before/after). Tenants don't sign themselves up here; they're invited by
-// their landlord straight to /tenant/login. "Get Started" below routes
-// through /start, which is where a visitor picks landlord vs. tenant.
+// The site's homepage - a single landlord-facing page: what Managika Homes
+// is, why it's safe to trust with rent money, pricing, and - right here on
+// this same page, no detour through a separate login screen - the actual
+// "pick a plan, create your account, pay by M-Pesa" flow. Nothing else is
+// offered before payment. Once the subscription is confirmed active, the
+// visitor is sent to /start (the landlord/tenant portal chooser).
+const PLANS = [
+  { key: "starter", name: "Starter", monthly: 1500, blurb: "A handful of units" },
+  { key: "growth", name: "Growth", monthly: 3000, blurb: "Most chosen" },
+  { key: "portfolio", name: "Portfolio", monthly: 6500, blurb: "Estates & agencies" },
+];
+
+function annualPrice(monthly: number) {
+  return Math.round(monthly * 12 * 0.8);
+}
+
 export default function Home() {
+  const router = useRouter();
   const skylineRef = useRef<HTMLDivElement>(null);
+
+  const [selectedPlan, setSelectedPlan] = useState("growth");
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const sky = skylineRef.current;
@@ -36,6 +61,98 @@ export default function Home() {
     horizon.className = "horizon";
     sky.appendChild(horizon);
   }, []);
+
+  async function handleSubscribe() {
+    setError("");
+    if (!fullName.trim() || !email.trim() || !phone.trim() || !password) {
+      setError("Please fill in all fields.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setSubmitting(true);
+    setStatus("Creating your account...");
+
+    const { data, error: signupError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: "https://managikahomes.co.ke/landlord/login" },
+    });
+    if (signupError) {
+      setError(signupError.message);
+      setSubmitting(false);
+      setStatus("");
+      return;
+    }
+    if (!data.user) {
+      setError("Could not create your account. Please try again.");
+      setSubmitting(false);
+      setStatus("");
+      return;
+    }
+
+    await supabase.from("landlords").insert({ id: data.user.id, full_name: fullName.trim(), email: email.trim(), phone_number: phone.trim() });
+
+    if (!data.session) {
+      setSubmitting(false);
+      setStatus("");
+      setError("Account created - check your email to confirm it, then log in to finish paying and get started.");
+      return;
+    }
+
+    const token = data.session.access_token;
+    const userId = data.user.id;
+    setStatus("Sending the M-Pesa payment prompt to your phone...");
+
+    try {
+      const res = await fetch("/api/subscription-stk-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({ plan: selectedPlan, billingCycle, phoneNumber: phone.trim() }),
+      });
+      const result = await res.json();
+
+      if (!res.ok || result.error) {
+        setError(result.error || "Could not start payment.");
+        setSubmitting(false);
+        setStatus("");
+        return;
+      }
+      if (!result.CheckoutRequestID) {
+        setError(result.errorMessage || "M-Pesa did not accept this request.");
+        setSubmitting(false);
+        setStatus("");
+        return;
+      }
+
+      setStatus("Check your phone and enter your M-Pesa PIN to complete the payment.");
+
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts += 1;
+        const { data: sub } = await supabase.from("landlord_subscriptions").select("status").eq("landlord_id", userId).maybeSingle();
+        if (sub?.status === "active") {
+          clearInterval(poll);
+          setStatus("Payment received - taking you onward...");
+          setTimeout(() => router.push("/start"), 1500);
+        } else if (attempts >= 20) {
+          clearInterval(poll);
+          setSubmitting(false);
+          setStatus("");
+          setError("Didn't see the payment come through yet. If you completed it on your phone, refresh this page in a minute.");
+        }
+      }, 3000);
+    } catch (e: any) {
+      setError(e.message || "Something went wrong starting the payment.");
+      setSubmitting(false);
+      setStatus("");
+    }
+  }
+
+  const activePlan = PLANS.find((p) => p.key === selectedPlan) || PLANS[1];
+  const activePrice = billingCycle === "annual" ? annualPrice(activePlan.monthly) : activePlan.monthly;
 
   return (
     <main>
@@ -95,9 +212,11 @@ export default function Home() {
 
         .lp-root section{ padding:clamp(56px,8vw,96px) 0; }
         .lp-section-head{ max-width:640px; margin:0 0 44px; }
+        .lp-section-head.lp-center{ margin-left:auto; margin-right:auto; text-align:center; }
         .lp-section-head .lp-kicker{ font-size:12px; letter-spacing:0.14em; text-transform:uppercase; color:var(--gold); font-weight:600; margin-bottom:10px; display:block; }
         .lp-section-head h2{ font-size:clamp(24px,3.4vw,36px); font-weight:600; }
         .lp-section-head p{ color:var(--muted); font-size:16px; margin-top:14px; max-width:56ch; }
+        .lp-section-head.lp-center p{ margin-left:auto; margin-right:auto; }
 
         .lp-compare{ display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--card-border); border-radius:16px; overflow:hidden; background:var(--card); }
         @media (max-width:720px){ .lp-compare{ grid-template-columns:1fr; } }
@@ -135,7 +254,7 @@ export default function Home() {
         .lp-tier ul{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:11px; flex:1; }
         .lp-tier li{ display:flex; gap:9px; font-size:14.5px; color:var(--ink-soft); }
         .lp-tier li .lp-mark{ flex:none; color:var(--good); font-weight:700; }
-        .lp-tier .lp-cta{ margin-top:24px; text-align:center; padding:11px; border-radius:9px; font-weight:600; font-size:14.5px; text-decoration:none; }
+        .lp-tier .lp-cta{ margin-top:24px; text-align:center; padding:11px; border-radius:9px; font-weight:600; font-size:14.5px; text-decoration:none; border:none; width:100%; cursor:pointer; font-family:inherit; }
         .lp-tier.lp-featured .lp-cta{ background:var(--gold); color:#1a1206; }
         .lp-tier:not(.lp-featured) .lp-cta{ background:transparent; border:1px solid var(--card-border); color:var(--ink); }
         .lp-ladder{ margin-top:16px; font-size:12.5px; color:var(--muted); }
@@ -144,15 +263,46 @@ export default function Home() {
         .lp-compare-market{ margin-top:28px; text-align:center; color:var(--muted); font-size:14px; }
         .lp-compare-market strong{ color:var(--ink); }
 
-        .lp-closer{ border-radius:22px; padding:clamp(36px,5vw,56px); background:linear-gradient(135deg, #16273f 0%, #2c3f60 100%); color:#f2ede0; text-align:center; }
-        @media (prefers-color-scheme: dark){ .lp-closer{ background:linear-gradient(135deg, var(--ink) 0%, #1c2c4a 100%); } }
-        .lp-closer h2{ color:#f7f2e7; font-size:clamp(22px,3vw,30px); }
-        .lp-closer p{ color:#c9d2e2; max-width:48ch; margin:14px auto 0; font-size:15px; }
-        .lp-closer .lp-hero-ctas{ margin-top:26px; }
+        .lp-why{ display:grid; grid-template-columns:repeat(4,1fr); gap:20px; }
+        @media (max-width:760px){ .lp-why{ grid-template-columns:repeat(2,1fr); } }
+        .lp-why-item{ text-align:center; padding:22px 12px; background:var(--card); border:1px solid var(--card-border); border-radius:16px; }
+        .lp-why-item .lp-why-icon{ font-size:32px; display:block; }
+        .lp-why-item h3{ font-size:15px; font-weight:600; margin-top:12px; }
+        .lp-why-item p{ font-size:13px; color:var(--muted); margin-top:6px; }
+
+        .lp-steps{ display:grid; grid-template-columns:repeat(3,1fr); gap:clamp(16px,3vw,32px); }
+        @media (max-width:760px){ .lp-steps{ grid-template-columns:1fr; } }
+        .lp-step{ text-align:center; }
+        .lp-step .lp-step-num{ width:44px; height:44px; border-radius:50%; background:var(--gold); color:#1a1206; display:flex; align-items:center; justify-content:center; font-weight:700; font-family:"Fraunces",serif; font-size:18px; margin:0 auto 16px; }
+        .lp-step h3{ font-size:16px; font-weight:600; }
+        .lp-step p{ font-size:13.5px; color:var(--muted); margin-top:8px; max-width:30ch; margin-left:auto; margin-right:auto; }
+
+        .lp-start{ background:var(--card); border:1px solid var(--card-border); border-radius:20px; padding:clamp(24px,4vw,44px); max-width:600px; margin:0 auto; }
+        .lp-start-toggle{ display:flex; justify-content:center; gap:8px; margin-bottom:22px; }
+        .lp-start-toggle button{ padding:9px 18px; border-radius:8px; border:1px solid var(--card-border); background:transparent; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; font-family:inherit; }
+        .lp-start-toggle button.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+        .lp-start-plans{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:20px; }
+        .lp-start-plans button{ padding:14px 8px; border-radius:12px; border:2px solid var(--card-border); background:var(--card); cursor:pointer; text-align:center; font-family:inherit; }
+        .lp-start-plans button.active{ border-color:var(--gold); background:color-mix(in srgb, var(--gold) 12%, var(--card)); }
+        .lp-start-plans .lp-sp-name{ font-weight:700; font-size:14px; color:var(--ink); display:block; }
+        .lp-start-plans .lp-sp-blurb{ font-size:11px; color:var(--muted); display:block; margin-top:2px; }
+        .lp-start-price{ text-align:center; margin-bottom:26px; padding-bottom:22px; border-bottom:1px solid var(--hairline); }
+        .lp-start-price .lp-amt{ font-size:36px; font-weight:600; }
+        .lp-start-price .lp-unit{ color:var(--muted); font-size:13px; margin-left:4px; }
+        .lp-start-field{ margin-bottom:16px; }
+        .lp-start-field label{ display:block; font-size:13px; font-weight:600; color:var(--ink-soft); margin-bottom:6px; }
+        .lp-start-field input{ width:100%; padding:12px 14px; border-radius:9px; border:1px solid var(--card-border); background:var(--paper); color:var(--ink); font-size:14px; font-family:inherit; }
+        .lp-start-field input:focus-visible{ outline:2px solid var(--gold); outline-offset:1px; }
+        .lp-start-error{ background:rgba(178,87,87,0.12); border:1px solid rgba(178,87,87,0.35); color:#b25757; font-size:13px; padding:10px 14px; border-radius:9px; margin-bottom:16px; }
+        .lp-start-status{ background:rgba(63,122,92,0.12); border:1px solid rgba(63,122,92,0.35); color:var(--good); font-size:13px; padding:10px 14px; border-radius:9px; margin-bottom:16px; }
+        .lp-start-submit{ width:100%; padding:15px; border-radius:9px; border:none; background:var(--gold); color:#1a1206; font-weight:700; font-size:15px; cursor:pointer; font-family:inherit; margin-top:6px; }
+        .lp-start-submit:hover{ background:var(--gold-bright); }
+        .lp-start-submit:disabled{ opacity:0.6; cursor:default; }
+        .lp-start-login{ text-align:center; margin-top:18px; font-size:13px; color:var(--muted); }
+        .lp-start-login a{ text-decoration:underline; font-weight:600; }
 
         .lp-footer{ padding:32px 0 56px; text-align:center; color:var(--muted); font-size:13px; }
         .lp-footer a{ text-decoration:underline; text-underline-offset:2px; }
-        .lp-footer .lp-footer-tenant{ display:block; margin-top:10px; font-size:13px; }
       `}</style>
 
       <div className="lp-root">
@@ -164,7 +314,7 @@ export default function Home() {
             </a>
             <div className="lp-nav-links">
               <a href="#pricing">Pricing</a>
-              <a href="/landlord/login" className="lp-nav-cta">Landlord Login</a>
+              <a href="#get-started" className="lp-nav-cta">Get Started</a>
             </div>
           </div>
         </nav>
@@ -175,15 +325,44 @@ export default function Home() {
             <h1>Run your rental portfolio like a business, not a shoebox of receipts</h1>
             <p className="lp-sub">Managika Homes handles rent tracking, tenant communication, and M-Pesa payments — while your money still lands straight in your own Paybill, Till, or bank account. We never touch it.</p>
             <div className="lp-hero-ctas">
-              <a className="lp-btn lp-btn-gold" href="/landlord/login">Get Started</a>
+              <a className="lp-btn lp-btn-gold" href="#get-started">Get Started</a>
               <a className="lp-btn lp-btn-ghost" href="#pricing">See pricing</a>
             </div>
-            <p className="lp-hero-note">No card required to get started · Already have an account? <a href="/landlord/login" style={{ textDecoration: "underline" }}>Log in</a></p>
+            <p className="lp-hero-note">Already have an account? <a href="/landlord/login" style={{ textDecoration: "underline" }}>Log in</a></p>
           </div>
           <div className="lp-skyline" aria-hidden="true" ref={skylineRef}></div>
         </div>
 
         <div className="lp-wrap">
+          <section>
+            <div className="lp-section-head lp-center">
+              <span className="lp-kicker">Everything in one place</span>
+              <h2>Why landlords switch to Managika Homes</h2>
+            </div>
+            <div className="lp-why">
+              <div className="lp-why-item">
+                <span className="lp-why-icon">🏠</span>
+                <h3>Properties &amp; Units</h3>
+                <p>Every property, block, and unit organized in one dashboard.</p>
+              </div>
+              <div className="lp-why-item">
+                <span className="lp-why-icon">💰</span>
+                <h3>Rent &amp; Payments</h3>
+                <p>M-Pesa and bank payments tracked automatically, straight to your account.</p>
+              </div>
+              <div className="lp-why-item">
+                <span className="lp-why-icon">🔧</span>
+                <h3>Maintenance</h3>
+                <p>Requests logged, tracked, and resolved without a single lost WhatsApp message.</p>
+              </div>
+              <div className="lp-why-item">
+                <span className="lp-why-icon">🤖</span>
+                <h3>AI Assistant</h3>
+                <p>Ask &ldquo;who owes rent?&rdquo; and get a straight answer, instantly.</p>
+              </div>
+            </div>
+          </section>
+
           <section>
             <div className="lp-section-head">
               <span className="lp-kicker">The problem today</span>
@@ -236,6 +415,30 @@ export default function Home() {
             </div>
           </section>
 
+          <section>
+            <div className="lp-section-head lp-center">
+              <span className="lp-kicker">How it works</span>
+              <h2>Three steps and you&rsquo;re running your portfolio properly</h2>
+            </div>
+            <div className="lp-steps">
+              <div className="lp-step">
+                <div className="lp-step-num">1</div>
+                <h3>Pick a plan &amp; pay</h3>
+                <p>Create your account and pay by M-Pesa below — takes about a minute.</p>
+              </div>
+              <div className="lp-step">
+                <div className="lp-step-num">2</div>
+                <h3>Add your properties</h3>
+                <p>Load in your properties, units, and tenants — or bulk-import them in one go.</p>
+              </div>
+              <div className="lp-step">
+                <div className="lp-step-num">3</div>
+                <h3>Get paid, stay on top</h3>
+                <p>Tenants pay straight into your own account. Reminders and reports run themselves.</p>
+              </div>
+            </div>
+          </section>
+
           <section id="pricing">
             <div className="lp-section-head">
               <span className="lp-kicker">Pricing</span>
@@ -260,7 +463,7 @@ export default function Home() {
                   <li><span className="lp-mark">✓</span>Automated monthly rent reminders</li>
                   <li><span className="lp-mark">✓</span>2 admin logins</li>
                 </ul>
-                <a className="lp-cta" href="/landlord/login?plan=starter">Get started</a>
+                <button type="button" className="lp-cta" onClick={() => { setSelectedPlan("starter"); document.getElementById("get-started")?.scrollIntoView({ behavior: "smooth" }); }}>Get started</button>
               </div>
 
               <div className="lp-tier lp-featured">
@@ -281,7 +484,7 @@ export default function Home() {
                   <li><span className="lp-mark">✓</span>Maintenance &amp; complaint tracking</li>
                   <li><span className="lp-mark">✓</span>10 admin logins</li>
                 </ul>
-                <a className="lp-cta" href="/landlord/login?plan=growth">Get started</a>
+                <button type="button" className="lp-cta" onClick={() => { setSelectedPlan("growth"); document.getElementById("get-started")?.scrollIntoView({ behavior: "smooth" }); }}>Get started</button>
               </div>
 
               <div className="lp-tier">
@@ -301,7 +504,7 @@ export default function Home() {
                   <li><span className="lp-mark">✓</span>Priority support</li>
                   <li><span className="lp-mark">✓</span>Dedicated onboarding</li>
                 </ul>
-                <a className="lp-cta" href="/landlord/login?plan=portfolio">Get started</a>
+                <button type="button" className="lp-cta" onClick={() => { setSelectedPlan("portfolio"); document.getElementById("get-started")?.scrollIntoView({ behavior: "smooth" }); }}>Get started</button>
               </div>
             </div>
 
@@ -309,14 +512,58 @@ export default function Home() {
             <p className="lp-price-note" style={{ textAlign: "center" }}>Pay annually and save 20% on any plan. Prices exclude Safaricom&rsquo;s standard M-Pesa transaction charges.</p>
           </section>
 
-          <section>
-            <div className="lp-closer">
-              <h2>Bring your properties. Keep your Paybill.</h2>
-              <p>Set-up takes one afternoon — your properties, units, and tenants loaded in, your own M-Pesa or bank details connected, and your tenants notified. No card required to talk it through.</p>
-              <div className="lp-hero-ctas">
-                <a className="lp-btn lp-btn-gold" href="mailto:robertkimani83@gmail.com?subject=Managika%20Homes%20—%20Get%20started">Get in touch</a>
-                <a className="lp-btn lp-btn-ghost" href="/landlord/login">Already a landlord? Log in</a>
+          <section id="get-started">
+            <div className="lp-section-head lp-center">
+              <span className="lp-kicker">Get started</span>
+              <h2>Create your account and pay — right here, in one step</h2>
+              <p>Pick your plan, fill in your details, and pay by M-Pesa. As soon as your payment is confirmed you&rsquo;re taken straight on to set up your portfolio.</p>
+            </div>
+
+            <div className="lp-start">
+              <div className="lp-start-toggle">
+                <button type="button" className={billingCycle === "monthly" ? "active" : ""} onClick={() => setBillingCycle("monthly")}>Monthly</button>
+                <button type="button" className={billingCycle === "annual" ? "active" : ""} onClick={() => setBillingCycle("annual")}>Annual — save 20%</button>
               </div>
+
+              <div className="lp-start-plans">
+                {PLANS.map((p) => (
+                  <button key={p.key} type="button" className={selectedPlan === p.key ? "active" : ""} onClick={() => setSelectedPlan(p.key)}>
+                    <span className="lp-sp-name">{p.name}</span>
+                    <span className="lp-sp-blurb">{p.blurb}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="lp-start-price">
+                <span className="lp-amt mono">KSh {activePrice.toLocaleString()}</span>
+                <span className="lp-unit">/ {billingCycle === "annual" ? "year" : "month"} minimum</span>
+              </div>
+
+              <div className="lp-start-field">
+                <label>Full Name</label>
+                <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Robert Kimani" />
+              </div>
+              <div className="lp-start-field">
+                <label>Email address</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+              </div>
+              <div className="lp-start-field">
+                <label>M-Pesa Phone Number</label>
+                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" />
+              </div>
+              <div className="lp-start-field">
+                <label>Password</label>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" />
+              </div>
+
+              {error && <div className="lp-start-error">{error}</div>}
+              {status && <div className="lp-start-status">{status}</div>}
+
+              <button type="button" className="lp-start-submit" disabled={submitting} onClick={handleSubscribe}>
+                {submitting ? "Please wait..." : "Pay with M-Pesa & Get Started"}
+              </button>
+
+              <p className="lp-start-login">Already have an account? <a href="/landlord/login">Log in</a></p>
             </div>
           </section>
         </div>
