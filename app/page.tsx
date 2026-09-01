@@ -164,7 +164,6 @@ export default function Home() {
             </a>
             <div className="lp-nav-links">
               <a href="#pricing">Pricing</a>
-              <a href="/tenant/login">Tenant Login</a>
               <a href="/landlord/login" className="lp-nav-cta">Landlord Login</a>
             </div>
           </div>
@@ -176,7 +175,7 @@ export default function Home() {
             <h1>Run your rental portfolio like a business, not a shoebox of receipts</h1>
             <p className="lp-sub">Managika Homes handles rent tracking, tenant communication, and M-Pesa payments — while your money still lands straight in your own Paybill, Till, or bank account. We never touch it.</p>
             <div className="lp-hero-ctas">
-              <a className="lp-btn lp-btn-gold" href="/start">Get Started</a>
+              <a className="lp-btn lp-btn-gold" href="/landlord/login">Get Started</a>
               <a className="lp-btn lp-btn-ghost" href="#pricing">See pricing</a>
             </div>
             <p className="lp-hero-note">No card required to get started · Already have an account? <a href="/landlord/login" style={{ textDecoration: "underline" }}>Log in</a></p>
@@ -325,7 +324,6 @@ export default function Home() {
         <footer className="lp-footer">
           <div className="lp-wrap">
             © 2026 Managika Homes · <a href="mailto:robertkimani83@gmail.com">robertkimani83@gmail.com</a> · managikahomes.co.ke
-            <span className="lp-footer-tenant">Are you a tenant? <a href="/tenant/login">Sign in to your tenant portal →</a></span>
           </div>
         </footer>
       </div>

@@ -124,8 +124,9 @@ function LandlordBillingInner() {
         const sub = await refreshSubscription(userId);
         if (sub?.status === "active") {
           clearInterval(poll);
-          setStatus("Payment received — you're all set.");
+          setStatus("Payment received — you're all set. Taking you to your dashboard...");
           setPaying(false);
+          setTimeout(() => router.push("/landlord/dashboard"), 1800);
         } else if (attempts >= 20) {
           clearInterval(poll);
           setPaying(false);
