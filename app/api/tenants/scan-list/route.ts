@@ -14,7 +14,7 @@ const supabaseAuth = createClient(supabaseUrl, anonKey);
 const MODELS = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"];
 
 const SCAN_PROMPT =
-  "This image is a page from a handwritten or printed notebook listing tenants and their phone numbers, used by a landlord in Kenya. " +
+  "This file (an image or a PDF page) is a page from a handwritten or printed notebook, or a typed list, listing tenants and their phone numbers, used by a landlord in Kenya. " +
   "Read every name and phone number you can find on the page, even if the handwriting is messy. " +
   "Output ONLY a plain list, one tenant per line, in the exact format: Full Name, Phone Number " +
   "(for example: John Kamau, 0712345678). " +
@@ -76,9 +76,12 @@ if (!imageBase64 || !mimeType) {
 if (String(imageBase64).length > 12 * 1024 * 1024) {
   return NextResponse.json({ error: "That photo is too large. Try again with a smaller image or crop it to just the tenant list." }, { status: 400 });
 }
-const ALLOWED_SCAN_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+// Keep this in sync with the accept="" attribute on the file input in
+// app/tenants/page.tsx - the upload button already invites PDFs, so the
+// server needs to accept them too, not just images.
+const ALLOWED_SCAN_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"];
 if (!ALLOWED_SCAN_TYPES.includes(String(mimeType))) {
-  return NextResponse.json({ error: "Please upload a photo (JPG, PNG, WEBP, or HEIC)." }, { status: 400 });
+  return NextResponse.json({ error: "Please upload a photo (JPG, PNG, WEBP, or HEIC) or a PDF." }, { status: 400 });
 }
 
 let lastError = "Could not read the document";
