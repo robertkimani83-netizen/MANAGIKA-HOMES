@@ -44,6 +44,15 @@ if (!question) {
   return NextResponse.json({ error: "Missing question" }, { status: 400 });
 }
 
+// Bounds the size (and therefore the Gemini cost) of any single request -
+// a real question never needs to be this long, and without a cap here a
+// signed-in user could send a huge question/context on every call and run
+// up the API bill even though they're not doing anything malicious with
+// the answer itself.
+if (String(question).length > 4000 || String(context || "").length > 20000) {
+  return NextResponse.json({ error: "That question or its data is too long. Please shorten it and try again." }, { status: 400 });
+}
+
 const prompt = "You are a helpful assistant inside Managika Homes, a property management app used by landlords and tenants in Kenya. Answer the question using ONLY the data given below. Be concise, friendly, and practical. If the data does not contain the answer, say so honestly instead of guessing. Do not use markdown formatting such as asterisks, bold, or bullet symbols. When your answer includes more than one item (such as tenants, balances, or requests), put each item on its own line by itself instead of running them together in one sentence.\n\nDATA:\n" + (context || "No data provided.") + "\n\nQUESTION:\n" + question;
 
 let lastError = "Gemini request failed";

@@ -11,6 +11,24 @@ const supabaseAuth = createClient(supabaseUrl, anonKey);
 const VALID_TYPES = ["lease", "receipt", "deposit", "inspection", "notice", "other"];
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB - generous for a scanned lease/photo, small enough to keep uploads fast on a mobile connection
 
+// Every real use of this route is a scanned/photographed document - a
+// lease, a receipt, an inspection photo. Restricting to those content
+// types means nobody can upload an HTML/SVG file with embedded script
+// into the bucket (harmless against this app's own session either way,
+// since files are only ever served from Supabase's storage domain via a
+// signed URL - never Managika's own origin - but there's no reason to
+// allow it in the first place when it's never a legitimate document).
+const ALLOWED_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
 async function authenticate(request: NextRequest) {
   const authHeader = request.headers.get("authorization") || "";
   const token = authHeader.replace("Bearer ", "").trim();
@@ -45,6 +63,9 @@ export async function POST(request: NextRequest) {
     const type = typeof documentType === "string" && VALID_TYPES.includes(documentType) ? documentType : "other";
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json({ error: "File is too large (15MB limit)" }, { status: 400 });
+    }
+    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+      return NextResponse.json({ error: "That file type isn't supported. Please upload a PDF, Word document, or photo (JPG/PNG/HEIC)." }, { status: 400 });
     }
 
     // Only a landlord who owns this tenant may upload a document for them.
