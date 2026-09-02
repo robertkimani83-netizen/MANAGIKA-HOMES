@@ -241,6 +241,7 @@ export default function Home() {
         .lp-mockup-stats > div{ background:rgba(227,171,95,0.08); border:1px solid rgba(227,171,95,0.18); border-radius:9px; padding:10px 8px; text-align:center; }
         .lp-mockup-stat-num{ display:block; font-size:15px; font-weight:600; color:#f0ead9; }
         .lp-mockup-stats > div span:last-child{ display:block; font-size:10px; color:#93a1b8; margin-top:3px; }
+        @media (max-width:400px){ .lp-mockup-stats{ gap:6px; } .lp-mockup-stats > div{ padding:8px 4px; } .lp-mockup-stat-num{ font-size:12.5px; } .lp-mockup-stats > div span:last-child{ font-size:8.5px; } }
         .lp-mockup-rows{ display:flex; flex-direction:column; gap:8px; }
         .lp-mockup-row{ display:flex; align-items:center; justify-content:space-between; background:rgba(240,234,217,0.05); border-radius:8px; padding:9px 12px; }
         .lp-mockup-name{ height:8px; width:42%; border-radius:4px; background:rgba(240,234,217,0.18); }
@@ -334,7 +335,9 @@ export default function Home() {
         .lp-start-toggle button{ padding:9px 18px; border-radius:8px; border:1px solid var(--card-border); background:transparent; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; font-family:inherit; }
         .lp-start-toggle button.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
         .lp-start-plans{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:20px; }
+        @media (max-width:480px){ .lp-start-plans{ grid-template-columns:1fr; } }
         .lp-start-plans button{ padding:14px 8px; border-radius:12px; border:2px solid var(--card-border); background:var(--card); cursor:pointer; text-align:center; font-family:inherit; }
+        @media (max-width:480px){ .lp-start-plans button{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; } .lp-start-plans .lp-sp-blurb{ margin-top:0; } }
         .lp-start-plans button.active{ border-color:var(--gold); background:color-mix(in srgb, var(--gold) 12%, var(--card)); }
         .lp-start-plans .lp-sp-name{ font-weight:700; font-size:14px; color:var(--ink); display:block; }
         .lp-start-plans .lp-sp-blurb{ font-size:11px; color:var(--muted); display:block; margin-top:2px; }
