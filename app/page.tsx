@@ -660,7 +660,7 @@ export default function Home() {
 
         <footer className="lp-footer">
           <div className="lp-wrap">
-            © 2026 Managika Homes · <a href="mailto:robertkimani83@gmail.com">robertkimani83@gmail.com</a> · managikahomes.co.ke
+            © 2026 Managika Homes · <a href="mailto:support@managikahomes.co.ke">support@managikahomes.co.ke</a> · managikahomes.co.ke
           </div>
         </footer>
       </div>
