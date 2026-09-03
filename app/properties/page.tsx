@@ -53,10 +53,11 @@ if (!landlordId) return;
 // constraint error isn't something we can verify without live DB
 // access, so instead of relying on either behavior, refuse up front
 // and tell the landlord exactly what to do about it.
-const { count, error: countError } = await supabase.from("units").select("id", { count: "exact", head: true }).eq("property_id", id);
+const { data: attachedUnits, error: countError } = await supabase.from("units").select("id").eq("property_id", id);
 if (countError) { alert("Could not check this property's units: " + countError.message); return; }
-if (count && count > 0) {
-  alert("This property still has " + count + " unit(s) attached. Please delete or reassign those units first, then delete the property.");
+const attachedCount = attachedUnits?.length || 0;
+if (attachedCount > 0) {
+  alert("This property still has " + attachedCount + " unit(s) attached. Please delete or reassign those units first, then delete the property.");
   return;
 }
 const confirmed = window.confirm("Are you sure you want to delete this property?");

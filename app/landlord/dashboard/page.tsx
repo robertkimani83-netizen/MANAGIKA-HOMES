@@ -46,13 +46,13 @@ setLoading(true);
     landlordUnits = units || [];
   }
   const unitIds = landlordUnits.map((u) => u.id);
-  const { count: tenantCountResult } = await supabase.from("tenants").select("id", { count: "exact", head: true }).eq("landlord_id", landlordId).eq("status", "active");
   const occupiedUnits = landlordUnits.filter((u) => u.status === "occupied");
   const rentExpected = occupiedUnits.reduce((sum, u) => sum + (Number(u.base_rent) || 0), 0);
   const period = currentPeriod();
   let collected = 0;
-  const { data: tenantsForPeriod } = await supabase.from("tenants").select("id").eq("landlord_id", landlordId);
+  const { data: tenantsForPeriod } = await supabase.from("tenants").select("id, status").eq("landlord_id", landlordId);
   const tenantIds = (tenantsForPeriod || []).map((t) => t.id);
+  const tenantCountResult = (tenantsForPeriod || []).filter((t) => t.status === "active").length;
   if (tenantIds.length > 0) {
     const { data: invoicesThisPeriod } = await supabase.from("invoices").select("id").in("tenant_id", tenantIds).eq("billing_period", period);
     const invoiceIds = (invoicesThisPeriod || []).map((i) => i.id);
@@ -177,7 +177,7 @@ return (
           <div key={step.number} className={`flex flex-col rounded-xl border ${step.title === "Properties" ? "border-blue-200" : step.title === "Units" ? "border-purple-200" : step.title === "Tenants" ? "border-emerald-200" : step.title === "Payments" ? "border-amber-200" : "border-rose-200"} bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md`}>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-lg font-bold text-slate-400">{step.number}</span>
-              <span className={`flex h-9 w-9 items-center justify-center rounded-lg text-lg ${step.title === "Properties" ? "bg-blue-100" : step.title === "Units" ? "bg-purple-100" : step.title === "Tenants" ? "bg-emerald-100" : step.title === "Payments" ? "bg-amber-100" : "bg-rose-100"}`}>{step.icon}</span>
+              <span className={`mh-step-icon flex h-9 w-9 items-center justify-center rounded-lg text-lg ${step.title === "Properties" ? "bg-blue-100" : step.title === "Units" ? "bg-purple-100" : step.title === "Tenants" ? "bg-emerald-100" : step.title === "Payments" ? "bg-amber-100" : "bg-rose-100"}`}>{step.icon}</span>
             </div>
             <h3 className="text-base font-bold">{step.title}</h3>
             <p className="mt-1 min-h-[36px] text-xs leading-5 text-slate-500">{step.description}</p>
