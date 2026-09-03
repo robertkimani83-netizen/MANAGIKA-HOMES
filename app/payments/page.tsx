@@ -395,7 +395,7 @@ return (
                   <td className="whitespace-nowrap px-6 py-4">{item.tenant.units?.unit_number || "Unassigned"}</td>
                   <td className="whitespace-nowrap px-6 py-4">{period}</td>
                   <td className="whitespace-nowrap px-6 py-4">KSh {item.expected.toLocaleString()}</td>
-                  <td className="whitespace-nowrap px-6 py-4 font-medium text-green-700">KSh {item.paid.toLocaleString()}</td>
+                  <td className={"whitespace-nowrap px-6 py-4 font-medium " + (item.paid > 0 ? "text-green-700" : "text-slate-400")}>KSh {item.paid.toLocaleString()}</td>
                   <td className="whitespace-nowrap px-6 py-4 font-medium">KSh {item.balance.toLocaleString()}</td>
                   <td className="whitespace-nowrap px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + statusClasses(item.status)}>{item.status}</span></td>
                   <td className="whitespace-nowrap px-6 py-4">
