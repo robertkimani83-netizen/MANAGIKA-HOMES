@@ -167,6 +167,7 @@ return (
             <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💳 Payment Settings</a>
             <a href="/team" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🧑‍🤝‍🧑 Team &amp; Caretakers</a>
             <a href="/screening" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🔎 Tenant Screening</a>
+            <a href="/download-app" className="mh-hide-in-app rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📲 Download App</a>
           </nav>
         </div>
       </aside>

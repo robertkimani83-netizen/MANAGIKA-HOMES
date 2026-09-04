@@ -35,7 +35,7 @@ const FAQS = [
   },
   {
     q: "Do my tenants need to download an app?",
-    a: "No app download needed — tenants use a simple web portal to see their balance, pay, and reach you. It works on any smartphone browser.",
+    a: "No — tenants can do everything from a simple web portal in any smartphone browser, no download needed. If they'd rather have an app icon on their home screen, there's an optional Android app and iPhone home-screen shortcut available too.",
   },
   {
     q: "What happens if I want to cancel?",
@@ -369,6 +369,7 @@ export default function Home() {
             </a>
             <div className="lp-nav-links">
               <a href="#pricing">Pricing</a>
+              <a href="/download-app" className="mh-hide-in-app">Download App</a>
               <a href="#get-started" className="lp-nav-cta">Get Started</a>
             </div>
           </div>
@@ -663,7 +664,7 @@ export default function Home() {
 
         <footer className="lp-footer">
           <div className="lp-wrap">
-            © 2026 Managika Homes · <a href="mailto:support@managikahomes.co.ke">support@managikahomes.co.ke</a> · managikahomes.co.ke
+            © 2026 Managika Homes · <a href="/download-app" className="mh-hide-in-app">Download the app</a> · <a href="mailto:support@managikahomes.co.ke">support@managikahomes.co.ke</a> · managikahomes.co.ke
           </div>
         </footer>
       </div>

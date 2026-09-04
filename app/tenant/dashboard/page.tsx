@@ -244,6 +244,7 @@ return (
 </div>
 <div className="flex items-center gap-3">
 <a href="/tenant/ai-assistant" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">🤖 AI Assistant</a>
+<a href="/download-app" className="mh-hide-in-app px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">📲 Get App</a>
 <button onClick={signOut} className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">Sign Out</button>
 </div>
 </div>

@@ -60,3 +60,19 @@ background-position: center;
 background-repeat: no-repeat;
 background-attachment: fixed;
 }
+
+/* Installed Android app only (see app-shell-detect.tsx) - shrinks the
+   dashboard step icons so they read closer to the website's proportions
+   inside the wrapped app. Never applies to regular browser visitors. */
+html.mh-app-shell .mh-step-icon {
+  height: 1.75rem;
+  width: 1.75rem;
+  font-size: 0.95rem;
+}
+
+/* Installed Android app only - hides "download/get the app" links and
+   banners, since a visitor already inside the installed app doesn't need
+   to be told to install it. Never applies to regular browser visitors. */
+html.mh-app-shell .mh-hide-in-app {
+  display: none !important;
+}
