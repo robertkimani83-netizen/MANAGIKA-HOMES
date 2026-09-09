@@ -59,8 +59,16 @@ export default function Home() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  // "pay" - only the M-Pesa phone number + Pay button are shown; nothing
+  // is charged to an account yet because no account exists. "paid" - the
+  // payment succeeded (confirmed via polling signup-stk-status) and we now
+  // show Full Name / Email / Password to actually create the account and
+  // claim the payment via signup-finalize.
+  const [stage, setStage] = useState<"pay" | "paid">("pay");
+  const [invoiceId, setInvoiceId] = useState("");
 
   useEffect(() => {
     const sky = skylineRef.current;
@@ -90,54 +98,21 @@ export default function Home() {
     sky.appendChild(horizon);
   }, []);
 
-  async function handleSubscribe() {
+  // Stage 1: no account exists yet - just send the M-Pesa STK push and
+  // wait for it to actually complete before asking for anything else.
+  async function payWithMpesa() {
     setError("");
-    if (!fullName.trim() || !email.trim() || !phone.trim() || !password) {
-      setError("Please fill in all fields.");
-      return;
-    }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (!phone.trim()) {
+      setError("Enter the M-Pesa phone number to pay from.");
       return;
     }
     setSubmitting(true);
-    setStatus("Creating your account...");
-
-    const { data, error: signupError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: { emailRedirectTo: "https://managikahomes.co.ke/landlord/login" },
-    });
-    if (signupError) {
-      setError(signupError.message);
-      setSubmitting(false);
-      setStatus("");
-      return;
-    }
-    if (!data.user) {
-      setError("Could not create your account. Please try again.");
-      setSubmitting(false);
-      setStatus("");
-      return;
-    }
-
-    await supabase.from("landlords").insert({ id: data.user.id, full_name: fullName.trim(), email: email.trim(), phone_number: phone.trim() });
-
-    if (!data.session) {
-      setSubmitting(false);
-      setStatus("");
-      setError("Account created - check your email to confirm it, then log in to finish paying and get started.");
-      return;
-    }
-
-    const token = data.session.access_token;
-    const userId = data.user.id;
-    setStatus("Sending the M-Pesa payment prompt to your phone...");
+    setStatus("Sending payment prompt to your phone...");
 
     try {
-      const res = await fetch("/api/subscription-stk-push", {
+      const res = await fetch("/api/signup-stk-push", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan: selectedPlan, billingCycle, phoneNumber: phone.trim() }),
       });
       const result = await res.json();
@@ -149,32 +124,118 @@ export default function Home() {
         return;
       }
       if (!result.invoice_id) {
-        setError(result.errorMessage || "M-Pesa did not accept this request.");
+        setError("M-Pesa did not accept this request.");
         setSubmitting(false);
         setStatus("");
         return;
       }
 
+      setInvoiceId(result.invoice_id);
+      try {
+        localStorage.setItem("managika_pending_invoice", result.invoice_id);
+      } catch {}
       setStatus("Check your phone and enter your M-Pesa PIN to complete the payment.");
 
       let attempts = 0;
       const poll = setInterval(async () => {
         attempts += 1;
-        const { data: sub } = await supabase.from("landlord_subscriptions").select("status").eq("landlord_id", userId).maybeSingle();
-        if (sub?.status === "active") {
-          clearInterval(poll);
-          setStatus("Payment received - taking you onward...");
-          setTimeout(() => router.push("/start"), 1500);
-        } else if (attempts >= 20) {
+        try {
+          const r = await fetch("/api/signup-stk-status?invoice_id=" + encodeURIComponent(result.invoice_id));
+          const j = await r.json();
+          if (j.status === "success") {
+            clearInterval(poll);
+            setSubmitting(false);
+            setStatus("Payment received! Create your account below to finish.");
+            setStage("paid");
+            return;
+          }
+          if (j.status === "failed") {
+            clearInterval(poll);
+            setSubmitting(false);
+            setStatus("");
+            setError("The payment didn't go through. Please try again.");
+            return;
+          }
+        } catch {}
+        if (attempts >= 20) {
           clearInterval(poll);
           setSubmitting(false);
           setStatus("");
-          setError("Didn't see the payment come through yet. If you completed it on your phone, refresh this page in a minute.");
+          setError("Didn't see the payment come through yet. If you completed it on your phone, wait a moment then try again.");
         }
       }, 3000);
     } catch (e: any) {
       setError(e.message || "Something went wrong starting the payment.");
       setSubmitting(false);
+      setStatus("");
+    }
+  }
+
+  // Stage 2: payment already succeeded (confirmed via signup-stk-status).
+  // Now actually create the account and claim that payment.
+  async function createAccount() {
+    setError("");
+    if (!fullName.trim() || !email.trim() || !password) {
+      setError("Please fill in all fields.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setCreatingAccount(true);
+    setStatus("Creating your account...");
+
+    const { data, error: signupError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: "https://managikahomes.co.ke/landlord/login" },
+    });
+    if (signupError) {
+      setError(signupError.message);
+      setCreatingAccount(false);
+      setStatus("");
+      return;
+    }
+    if (!data.user) {
+      setError("Could not create your account. Please try again.");
+      setCreatingAccount(false);
+      setStatus("");
+      return;
+    }
+
+    await supabase.from("landlords").insert({ id: data.user.id, full_name: fullName.trim(), email: email.trim(), phone_number: phone.trim() });
+
+    if (!data.session) {
+      setCreatingAccount(false);
+      setStatus("");
+      setError(
+        "Account created - check your email to confirm it, then log in. Your payment is saved and will be applied automatically once you log in."
+      );
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/signup-finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + data.session.access_token },
+        body: JSON.stringify({ invoice_id: invoiceId }),
+      });
+      const result = await res.json();
+      if (!res.ok || result.error) {
+        setError(result.error || "Could not finish activating your subscription. Please contact support.");
+        setCreatingAccount(false);
+        setStatus("");
+        return;
+      }
+      try {
+        localStorage.removeItem("managika_pending_invoice");
+      } catch {}
+      setStatus("All set - taking you onward...");
+      setTimeout(() => router.push("/start"), 1200);
+    } catch (e: any) {
+      setError(e.message || "Something went wrong finishing setup.");
+      setCreatingAccount(false);
       setStatus("");
     }
   }
@@ -591,8 +652,8 @@ export default function Home() {
           <section id="get-started">
             <div className="lp-section-head lp-center">
               <span className="lp-kicker">Get started</span>
-              <h2>Create your account and pay — right here, in one step</h2>
-              <p>Pick your plan, fill in your details, and pay by M-Pesa. As soon as your payment is confirmed you&rsquo;re taken straight on to set up your portfolio.</p>
+              <h2>Pay by M-Pesa first — then create your account</h2>
+              <p>Pick your plan and enter the M-Pesa number to pay from. Once the payment is confirmed, you&rsquo;ll create your account and be taken straight on to set up your portfolio.</p>
             </div>
 
             <div className="lp-start">
@@ -615,29 +676,42 @@ export default function Home() {
                 <span className="lp-unit">/ {billingCycle === "annual" ? "year" : "month"} minimum</span>
               </div>
 
-              <div className="lp-start-field">
-                <label>Full Name</label>
-                <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Robert Kimani" />
-              </div>
-              <div className="lp-start-field">
-                <label>Email address</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-              </div>
-              <div className="lp-start-field">
-                <label>M-Pesa Phone Number</label>
-                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" />
-              </div>
-              <div className="lp-start-field">
-                <label>Password</label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" />
-              </div>
+              {stage === "pay" && (
+                <div className="lp-start-field">
+                  <label>M-Pesa Phone Number</label>
+                  <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" />
+                </div>
+              )}
+
+              {stage === "paid" && (
+                <>
+                  <div className="lp-start-field">
+                    <label>Full Name</label>
+                    <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Robert Kimani" />
+                  </div>
+                  <div className="lp-start-field">
+                    <label>Email address</label>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+                  </div>
+                  <div className="lp-start-field">
+                    <label>Password</label>
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" />
+                  </div>
+                </>
+              )}
 
               {error && <div className="lp-start-error">{error}</div>}
               {status && <div className="lp-start-status">{status}</div>}
 
-              <button type="button" className="lp-start-submit" disabled={submitting} onClick={handleSubscribe}>
-                {submitting ? "Please wait..." : "Pay with M-Pesa & Get Started"}
-              </button>
+              {stage === "pay" ? (
+                <button type="button" className="lp-start-submit" disabled={submitting} onClick={payWithMpesa}>
+                  {submitting ? "Please wait..." : "Pay with M-Pesa"}
+                </button>
+              ) : (
+                <button type="button" className="lp-start-submit" disabled={creatingAccount} onClick={createAccount}>
+                  {creatingAccount ? "Please wait..." : "Create account & continue"}
+                </button>
+              )}
 
               <p className="lp-start-login">Already have an account? <a href="/landlord/login">Log in</a></p>
             </div>

@@ -50,11 +50,40 @@ function LandlordBillingInner() {
       .maybeSingle();
     if (landlord?.phone_number) setPhoneNumber(landlord.phone_number);
 
-    const { data: sub } = await supabase
-      .from("landlord_subscriptions")
-      .select("plan, billing_cycle, status, current_period_end")
-      .eq("landlord_id", sessionData.session.user.id)
-      .maybeSingle();
+    let sub = (
+      await supabase
+        .from("landlord_subscriptions")
+        .select("plan, billing_cycle, status, current_period_end")
+        .eq("landlord_id", sessionData.session.user.id)
+        .maybeSingle()
+    ).data;
+
+    // Covers the homepage's "pay first, then create your account" flow:
+    // if the payment succeeded before email confirmation finished, it's
+    // sitting unclaimed under an invoice id saved in this browser. Claim
+    // it now that we finally have a logged-in session.
+    if (!sub || sub.status !== "active") {
+      let pendingInvoice = "";
+      try {
+        pendingInvoice = localStorage.getItem("managika_pending_invoice") || "";
+      } catch {}
+      if (pendingInvoice) {
+        try {
+          const res = await fetch("/api/signup-finalize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + sessionData.session.access_token },
+            body: JSON.stringify({ invoice_id: pendingInvoice }),
+          });
+          if (res.ok) {
+            try {
+              localStorage.removeItem("managika_pending_invoice");
+            } catch {}
+            sub = await refreshSubscription(sessionData.session.user.id);
+          }
+        } catch {}
+      }
+    }
+
     if (sub) {
       setSubscription(sub);
       setSelectedPlan(sub.plan);
