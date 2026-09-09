@@ -118,7 +118,7 @@ function LandlordBillingInner() {
   async function refreshSubscription(userId: string) {
     const { data: sub } = await supabase
       .from("landlord_subscriptions")
-      .select("plan, billing_cycle, status, current_period_end")
+      .select("plan, billing_cycle, status, current_period_end, trial_ends_at")
       .eq("landlord_id", userId)
       .maybeSingle();
     if (sub) setSubscription(sub);
