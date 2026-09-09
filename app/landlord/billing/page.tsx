@@ -27,9 +27,18 @@ function LandlordBillingInner() {
   );
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [payMethod, setPayMethod] = useState<"mpesa" | "card">("mpesa");
   const [paying, setPaying] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+
+  // IntaSend's response shape for a rejected request isn't always a plain
+  // string (validation errors can come back as a nested object) - never
+  // hand that straight to setError, or the page ends up rendering
+  // "[object Object]" instead of a message.
+  function errMsg(result: any, fallback: string) {
+    return typeof result?.error === "string" ? result.error : fallback;
+  }
 
   useEffect(() => {
     init();
@@ -84,6 +93,18 @@ function LandlordBillingInner() {
       }
     }
 
+    // Landing here with ?checkout=1 means IntaSend just redirected back
+    // from a card payment (subscription-checkout's redirect_url). That
+    // request already carried a landlord_id, so the webhook should credit
+    // it on its own - but it may not have finished processing yet, so
+    // give it a few seconds of polling before giving up on this pageload.
+    if ((!sub || sub.status !== "active") && searchParams.get("checkout") === "1") {
+      for (let attempt = 0; attempt < 5 && (!sub || sub.status !== "active"); attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        sub = await refreshSubscription(sessionData.session.user.id);
+      }
+    }
+
     if (sub) {
       setSubscription(sub);
       setSelectedPlan(sub.plan);
@@ -128,14 +149,8 @@ function LandlordBillingInner() {
       });
       const result = await res.json();
 
-      if (!res.ok || result.error) {
-        setError(result.error || "Could not start payment.");
-        setPaying(false);
-        setStatus("");
-        return;
-      }
-      if (!result.invoice_id) {
-        setError(result.errorMessage || "M-Pesa did not accept this request.");
+      if (!res.ok || result.error || !result.invoice_id) {
+        setError(errMsg(result, "M-Pesa did not accept this request."));
         setPaying(false);
         setStatus("");
         return;
@@ -165,6 +180,43 @@ function LandlordBillingInner() {
       }, 3000);
     } catch (e: any) {
       setError(e.message || "Something went wrong starting the payment.");
+      setPaying(false);
+      setStatus("");
+    }
+  }
+
+  // Cards can't be charged directly the way M-Pesa's STK push works - the
+  // customer has to enter their card number on IntaSend's own hosted,
+  // PCI-compliant checkout page - so this redirects the whole tab there.
+  // Because a landlord_id already exists for this request (unlike the
+  // homepage's pay-first flow), the webhook alone is enough to activate
+  // the subscription; init()'s ?checkout=1 handling picks it back up.
+  async function payWithCard() {
+    setError("");
+    setPaying(true);
+    setStatus("Redirecting you to our secure card payment page...");
+
+    try {
+      const res = await fetch("/api/subscription-checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + authToken,
+        },
+        body: JSON.stringify({ plan: selectedPlan, billingCycle }),
+      });
+      const result = await res.json();
+
+      if (!res.ok || result.error || !result.url) {
+        setError(errMsg(result, "Could not start the card payment."));
+        setPaying(false);
+        setStatus("");
+        return;
+      }
+
+      window.location.href = result.url;
+    } catch (e: any) {
+      setError(e.message || "Something went wrong starting the card payment.");
       setPaying(false);
       setStatus("");
     }
@@ -267,14 +319,45 @@ function LandlordBillingInner() {
         </div>
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
-          <label className="mb-2 block text-sm font-semibold text-slate-700">M-Pesa phone number</label>
-          <input
-            type="text"
-            value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
-            placeholder="e.g. 0712345678"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
-          />
+          <div className="mb-4 inline-flex rounded-lg border border-slate-200 p-1">
+            <button
+              type="button"
+              onClick={() => setPayMethod("mpesa")}
+              className={
+                "rounded-md px-4 py-2 text-sm font-semibold transition " +
+                (payMethod === "mpesa" ? "bg-slate-900 text-white" : "text-slate-600")
+              }
+            >
+              M-Pesa
+            </button>
+            <button
+              type="button"
+              onClick={() => setPayMethod("card")}
+              className={
+                "rounded-md px-4 py-2 text-sm font-semibold transition " +
+                (payMethod === "card" ? "bg-slate-900 text-white" : "text-slate-600")
+              }
+            >
+              Card
+            </button>
+          </div>
+
+          {payMethod === "mpesa" ? (
+            <>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">M-Pesa phone number</label>
+              <input
+                type="text"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="e.g. 0712345678"
+                className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+              />
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">
+              You&rsquo;ll be taken to a secure page to enter your card details, then brought back here once payment is confirmed.
+            </p>
+          )}
 
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
           {status && <p className="mt-4 text-sm text-slate-600">{status}</p>}
@@ -282,10 +365,10 @@ function LandlordBillingInner() {
           <button
             type="button"
             disabled={paying}
-            onClick={payWithMpesa}
+            onClick={payMethod === "mpesa" ? payWithMpesa : payWithCard}
             className="mt-6 w-full rounded-lg bg-amber-500 px-4 py-3 font-bold text-slate-900 transition hover:bg-amber-400 disabled:opacity-60"
           >
-            {paying ? "Processing..." : "Pay with M-Pesa"}
+            {paying ? "Processing..." : payMethod === "mpesa" ? "Pay with M-Pesa" : "Pay with Card"}
           </button>
         </div>
 

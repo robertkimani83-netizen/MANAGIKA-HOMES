@@ -41,11 +41,16 @@ export async function POST(request: Request) {
     }
 
     // Diagnostic only — helps confirm the exact field names IntaSend sends
-    // for a real M-Pesa collection the first time this runs against a live
+    // for a real collection the first time this runs against a live
     // payment. Safe to leave in; contains no card numbers or secrets.
     console.log("[subscription-callback] IntaSend webhook:", JSON.stringify(body));
 
-    const invoiceId = body?.invoice_id;
+    // The Collection API (M-Pesa STK push) confirms it documents
+    // "invoice_id"; the Checkout API (used for card payments) hands back
+    // its session as plain "id" when it's first created, and its webhook
+    // field naming for that same id isn't confirmed from docs alone —
+    // accept either so a card payment isn't silently dropped here.
+    const invoiceId = body?.invoice_id || body?.id;
     const state = body?.state;
     if (!invoiceId || !state) {
       return NextResponse.json({ received: true });

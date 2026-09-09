@@ -69,6 +69,96 @@ export default function Home() {
   // claim the payment via signup-finalize.
   const [stage, setStage] = useState<"pay" | "paid">("pay");
   const [invoiceId, setInvoiceId] = useState("");
+  // "mpesa" pushes an STK prompt without leaving the page. "card" redirects
+  // the browser to IntaSend's hosted checkout page (required for entering
+  // card details securely) and back again once payment finishes.
+  const [payMethod, setPayMethod] = useState<"mpesa" | "card">("mpesa");
+
+  // IntaSend's response shape for a rejected request isn't always a plain
+  // string (validation errors can come back as a nested object) - never
+  // hand that straight to setError, or React ends up rendering
+  // "[object Object]" instead of a message.
+  function errMsg(result: any, fallback: string) {
+    return typeof result?.error === "string" ? result.error : fallback;
+  }
+
+  // Keeps checking signup-stk-status until it settles. Used both right
+  // after an M-Pesa push, and when the visitor lands back on this page
+  // after paying by card on IntaSend's hosted checkout (a full page
+  // redirect away and back, so nothing here is still "running" - this is
+  // what picks the payment back up).
+  function pollPaymentStatus(invId: string) {
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts += 1;
+      try {
+        const r = await fetch("/api/signup-stk-status?invoice_id=" + encodeURIComponent(invId));
+        const j = await r.json();
+        if (j.status === "success") {
+          clearInterval(poll);
+          setSubmitting(false);
+          setStatus("Payment received! Create your account below to finish.");
+          setStage("paid");
+          return;
+        }
+        if (j.status === "failed") {
+          clearInterval(poll);
+          setSubmitting(false);
+          setStatus("");
+          setError("The payment didn't go through. Please try again.");
+          try {
+            localStorage.removeItem("managika_pending_invoice");
+          } catch {}
+          return;
+        }
+      } catch {}
+      if (attempts >= 20) {
+        clearInterval(poll);
+        setSubmitting(false);
+        setStatus("");
+        setError("Didn't see the payment come through yet. If you completed it, wait a moment then try again.");
+      }
+    }, 3000);
+  }
+
+  // If a payment is still pending from before (most importantly: the
+  // visitor just paid by card and IntaSend redirected them back here),
+  // pick up where it left off instead of showing a blank "pay" form again.
+  useEffect(() => {
+    let pending = "";
+    try {
+      pending = localStorage.getItem("managika_pending_invoice") || "";
+    } catch {}
+    if (!pending) return;
+
+    setInvoiceId(pending);
+    setSubmitting(true);
+    setStatus("Checking your payment...");
+
+    (async () => {
+      try {
+        const r = await fetch("/api/signup-stk-status?invoice_id=" + encodeURIComponent(pending));
+        const j = await r.json();
+        if (j.status === "success") {
+          setSubmitting(false);
+          setStatus("Payment received! Create your account below to finish.");
+          setStage("paid");
+          return;
+        }
+        if (j.status === "failed") {
+          setSubmitting(false);
+          setStatus("");
+          setError("That payment didn't go through. Please try again.");
+          try {
+            localStorage.removeItem("managika_pending_invoice");
+          } catch {}
+          return;
+        }
+      } catch {}
+      // Still pending (or the check failed transiently) - keep watching it.
+      pollPaymentStatus(pending);
+    })();
+  }, []);
 
   useEffect(() => {
     const sky = skylineRef.current;
@@ -98,7 +188,7 @@ export default function Home() {
     sky.appendChild(horizon);
   }, []);
 
-  // Stage 1: no account exists yet - just send the M-Pesa STK push and
+  // Stage 1, M-Pesa: no account exists yet - just send the STK push and
   // wait for it to actually complete before asking for anything else.
   async function payWithMpesa() {
     setError("");
@@ -117,14 +207,8 @@ export default function Home() {
       });
       const result = await res.json();
 
-      if (!res.ok || result.error) {
-        setError(result.error || "Could not start payment.");
-        setSubmitting(false);
-        setStatus("");
-        return;
-      }
-      if (!result.invoice_id) {
-        setError("M-Pesa did not accept this request.");
+      if (!res.ok || result.error || !result.invoice_id) {
+        setError(errMsg(result, "M-Pesa did not accept this request."));
         setSubmitting(false);
         setStatus("");
         return;
@@ -135,37 +219,49 @@ export default function Home() {
         localStorage.setItem("managika_pending_invoice", result.invoice_id);
       } catch {}
       setStatus("Check your phone and enter your M-Pesa PIN to complete the payment.");
-
-      let attempts = 0;
-      const poll = setInterval(async () => {
-        attempts += 1;
-        try {
-          const r = await fetch("/api/signup-stk-status?invoice_id=" + encodeURIComponent(result.invoice_id));
-          const j = await r.json();
-          if (j.status === "success") {
-            clearInterval(poll);
-            setSubmitting(false);
-            setStatus("Payment received! Create your account below to finish.");
-            setStage("paid");
-            return;
-          }
-          if (j.status === "failed") {
-            clearInterval(poll);
-            setSubmitting(false);
-            setStatus("");
-            setError("The payment didn't go through. Please try again.");
-            return;
-          }
-        } catch {}
-        if (attempts >= 20) {
-          clearInterval(poll);
-          setSubmitting(false);
-          setStatus("");
-          setError("Didn't see the payment come through yet. If you completed it on your phone, wait a moment then try again.");
-        }
-      }, 3000);
+      pollPaymentStatus(result.invoice_id);
     } catch (e: any) {
       setError(e.message || "Something went wrong starting the payment.");
+      setSubmitting(false);
+      setStatus("");
+    }
+  }
+
+  // Stage 1, Card: cards can't be charged from our backend directly - the
+  // customer has to enter their card details on IntaSend's own hosted,
+  // PCI-compliant checkout page. So this redirects the whole browser tab
+  // there, and IntaSend redirects back here once payment finishes; the
+  // "resume a pending payment" effect above is what picks it back up.
+  async function payWithCard() {
+    setError("");
+    if (!email.trim() || !email.includes("@")) {
+      setError("Enter a valid email address to pay by card.");
+      return;
+    }
+    setSubmitting(true);
+    setStatus("Redirecting you to our secure card payment page...");
+
+    try {
+      const res = await fetch("/api/signup-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: selectedPlan, billingCycle, email: email.trim() }),
+      });
+      const result = await res.json();
+
+      if (!res.ok || result.error || !result.url || !result.id) {
+        setError(errMsg(result, "Could not start the card payment."));
+        setSubmitting(false);
+        setStatus("");
+        return;
+      }
+
+      try {
+        localStorage.setItem("managika_pending_invoice", result.id);
+      } catch {}
+      window.location.href = result.url;
+    } catch (e: any) {
+      setError(e.message || "Something went wrong starting the card payment.");
       setSubmitting(false);
       setStatus("");
     }
@@ -223,7 +319,7 @@ export default function Home() {
       });
       const result = await res.json();
       if (!res.ok || result.error) {
-        setError(result.error || "Could not finish activating your subscription. Please contact support.");
+        setError(errMsg(result, "Could not finish activating your subscription. Please contact support."));
         setCreatingAccount(false);
         setStatus("");
         return;
@@ -677,10 +773,23 @@ export default function Home() {
               </div>
 
               {stage === "pay" && (
-                <div className="lp-start-field">
-                  <label>M-Pesa Phone Number</label>
-                  <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" />
-                </div>
+                <>
+                  <div className="lp-start-toggle">
+                    <button type="button" className={payMethod === "mpesa" ? "active" : ""} onClick={() => setPayMethod("mpesa")}>M-Pesa</button>
+                    <button type="button" className={payMethod === "card" ? "active" : ""} onClick={() => setPayMethod("card")}>Card</button>
+                  </div>
+                  {payMethod === "mpesa" ? (
+                    <div className="lp-start-field">
+                      <label>M-Pesa Phone Number</label>
+                      <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" />
+                    </div>
+                  ) : (
+                    <div className="lp-start-field">
+                      <label>Email address</label>
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+                    </div>
+                  )}
+                </>
               )}
 
               {stage === "paid" && (
@@ -704,8 +813,13 @@ export default function Home() {
               {status && <div className="lp-start-status">{status}</div>}
 
               {stage === "pay" ? (
-                <button type="button" className="lp-start-submit" disabled={submitting} onClick={payWithMpesa}>
-                  {submitting ? "Please wait..." : "Pay with M-Pesa"}
+                <button
+                  type="button"
+                  className="lp-start-submit"
+                  disabled={submitting}
+                  onClick={payMethod === "mpesa" ? payWithMpesa : payWithCard}
+                >
+                  {submitting ? "Please wait..." : payMethod === "mpesa" ? "Pay with M-Pesa" : "Pay with Card"}
                 </button>
               ) : (
                 <button type="button" className="lp-start-submit" disabled={creatingAccount} onClick={createAccount}>
