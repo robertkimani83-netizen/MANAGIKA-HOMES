@@ -105,7 +105,7 @@ function LandlordBillingInner() {
         setStatus("");
         return;
       }
-      if (!result.CheckoutRequestID) {
+      if (!result.invoice_id) {
         setError(result.errorMessage || "M-Pesa did not accept this request.");
         setPaying(false);
         setStatus("");

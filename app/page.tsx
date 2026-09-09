@@ -148,7 +148,7 @@ export default function Home() {
         setStatus("");
         return;
       }
-      if (!result.CheckoutRequestID) {
+      if (!result.invoice_id) {
         setError(result.errorMessage || "M-Pesa did not accept this request.");
         setSubmitting(false);
         setStatus("");
