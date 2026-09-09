@@ -141,7 +141,7 @@ return (
         <input type="checkbox" checked={mpesaEnabled} onChange={(e) => setMpesaEnabled(e.target.checked)} className="h-5 w-5" />
         <span className="text-lg font-semibold text-slate-900">Accept M-Pesa payments</span>
       </label>
-      <p className="mt-1 text-sm text-slate-500">Requires your own Safaricom Daraja production credentials (Paybill or Till Number).</p>
+      <p className="mt-1 text-sm text-slate-500">Have your own Paybill or Till Number? We&rsquo;ll help you get it connected — just reach out to our team once you&rsquo;ve entered your details below.</p>
 
       {mpesaEnabled && (
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
