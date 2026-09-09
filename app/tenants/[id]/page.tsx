@@ -25,6 +25,11 @@ const [uploadFile, setUploadFile] = useState<File | null>(null);
 const [uploadType, setUploadType] = useState("lease");
 const [uploading, setUploading] = useState(false);
 const [documentError, setDocumentError] = useState<string | null>(null);
+const [waterReadings, setWaterReadings] = useState<any[]>([]);
+const [waterRate, setWaterRate] = useState(0);
+const [meterReading, setMeterReading] = useState("");
+const [savingReading, setSavingReading] = useState(false);
+const [waterMessage, setWaterMessage] = useState<string | null>(null);
 
 async function authedFetch(url: string, options: RequestInit = {}) {
   const { data: sessionData } = await supabase.auth.getSession();
@@ -54,6 +59,36 @@ async function uploadDocument() {
   setUploadFile(null);
   await loadDocuments();
   setUploading(false);
+}
+
+async function loadWaterReadings() {
+  const res = await authedFetch("/api/water-readings?tenantId=" + tenantId);
+  const result = await res.json();
+  if (res.ok) {
+    setWaterReadings(result.readings || []);
+    setWaterRate(Number(result.waterRate) || 0);
+  }
+}
+
+async function saveMeterReading() {
+  const reading = Number(meterReading);
+  if (!Number.isFinite(reading) || reading < 0) { setWaterMessage("Please enter a valid meter reading."); return; }
+  setSavingReading(true);
+  setWaterMessage(null);
+  const res = await authedFetch("/api/water-readings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tenantId, reading }),
+  });
+  const result = await res.json();
+  setSavingReading(false);
+  if (!res.ok) { setWaterMessage(result.error || "Could not save this reading."); return; }
+  setWaterMessage(
+    "Saved. Consumption: " + result.consumption + " units — KSh " + Number(result.waterAmount).toLocaleString() +
+    " added to the " + result.billingPeriod + " invoice."
+  );
+  setMeterReading("");
+  await loadWaterReadings();
 }
 
 async function viewDocument(id: string) {
@@ -105,7 +140,7 @@ setLandlordId(data.user.id);
   }
   setUnitOptions(options);
 
-  const { data: invoiceRows } = await supabase.from("invoices").select("id, billing_period, total_due, status, due_date").eq("tenant_id", tenantId).order("due_date", { ascending: false });
+  const { data: invoiceRows } = await supabase.from("invoices").select("id, billing_period, rent_amount, water_amount, total_due, status, due_date").eq("tenant_id", tenantId).order("due_date", { ascending: false });
   setInvoices(invoiceRows || []);
 
   const { data: maintenanceRows } = await supabase.from("maintenance_requests").select("id, title, description, urgency, status, created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false });
@@ -115,6 +150,7 @@ setLandlordId(data.user.id);
   setComplaints(complaintRows || []);
 
   await loadDocuments();
+  await loadWaterReadings();
 
   const { data: inspectionRows } = await supabase.from("unit_inspections").select("id, type, electricity_meter_reading, water_meter_reading, keys_issued, condition_notes, deposit_amount, deposit_refund_amount, photo_document_ids, created_at").eq("tenant_id", tenantId).eq("landlord_id", data.user.id).order("created_at", { ascending: false });
   setInspections(inspectionRows || []);
@@ -157,6 +193,7 @@ if (newUnitId) {
   }
 }
 setUnitOptions(options);
+await loadWaterReadings();
 
 setUnitMessage("Saved.");
 setSavingUnit(false);
@@ -227,6 +264,39 @@ return (
           <p className="font-medium">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</p>
         </div>
       </div>
+    </div>
+
+    <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
+      <h3 className="text-xl font-semibold mb-4">Water Billing</h3>
+      {!tenant.unit_id ? (
+        <p className="text-gray-500">Assign a unit to this tenant first to record water readings.</p>
+      ) : waterRate <= 0 ? (
+        <p className="text-gray-500">This tenant's unit has no water rate set. Add one on the Units page to start billing water.</p>
+      ) : (
+        <>
+          <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
+            <div className="flex-1">
+              <label className="mb-2 block text-sm font-medium text-gray-700">This period's meter reading</label>
+              <input type="number" min="0" value={meterReading} onChange={(e) => setMeterReading(e.target.value)} placeholder={waterReadings[0] ? "Last: " + waterReadings[0].reading : "e.g. 1050"} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <button onClick={saveMeterReading} disabled={savingReading} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+              {savingReading ? "Saving..." : "Save & Bill This Period's Water"}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mb-4">Billed at KSh {waterRate.toLocaleString()} per unit of consumption, added straight to this period's invoice.</p>
+          {waterMessage && <p className="text-sm text-gray-700 mb-4">{waterMessage}</p>}
+          {waterReadings.length > 0 && (
+            <div className="divide-y border-t">
+              {waterReadings.map((r) => (
+                <div key={r.id} className="py-2 flex items-center justify-between text-sm">
+                  <span className="text-gray-600">{r.billing_period}</span>
+                  <span className="font-medium text-gray-900">{r.reading}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
 
     <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
@@ -306,10 +376,18 @@ return (
       <div className="px-6 py-5 border-b"><h3 className="text-xl font-semibold">Invoice History</h3></div>
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Period</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Amount</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Status</th></tr></thead>
+          <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Period</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Rent</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Water</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Total</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Status</th></tr></thead>
           <tbody>
-            {invoices.length === 0 ? (<tr><td colSpan={3} className="px-6 py-10 text-center text-gray-500">No invoices yet.</td></tr>) : (
-              invoices.map((inv) => (<tr key={inv.id} className="border-t"><td className="px-6 py-4">{inv.billing_period}</td><td className="px-6 py-4">KSh {Number(inv.total_due).toLocaleString()}</td><td className="px-6 py-4 capitalize">{inv.status.replace("_", " ")}</td></tr>))
+            {invoices.length === 0 ? (<tr><td colSpan={5} className="px-6 py-10 text-center text-gray-500">No invoices yet.</td></tr>) : (
+              invoices.map((inv) => (
+                <tr key={inv.id} className="border-t">
+                  <td className="px-6 py-4">{inv.billing_period}</td>
+                  <td className="px-6 py-4">KSh {Number(inv.rent_amount).toLocaleString()}</td>
+                  <td className="px-6 py-4">{Number(inv.water_amount) > 0 ? "KSh " + Number(inv.water_amount).toLocaleString() : "—"}</td>
+                  <td className="px-6 py-4 font-medium">KSh {Number(inv.total_due).toLocaleString()}</td>
+                  <td className="px-6 py-4 capitalize">{inv.status.replace("_", " ")}</td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>

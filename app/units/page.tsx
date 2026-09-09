@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 
 type Property = { id: string; property_name: string };
 
-type Unit = { id: string; unit_number: string; base_rent: number; garbage_fee: number; status: string; property_id: string; properties: { property_name: string } | null };
+type Unit = { id: string; unit_number: string; base_rent: number; garbage_fee: number; water_rate: number; status: string; property_id: string; properties: { property_name: string } | null };
 
 export default function UnitsPage() {
 const router = useRouter();
@@ -19,6 +19,7 @@ const [propertyId, setPropertyId] = useState("");
 const [unitNumber, setUnitNumber] = useState("");
 const [baseRent, setBaseRent] = useState("");
 const [garbageFee, setGarbageFee] = useState("");
+const [waterRate, setWaterRate] = useState("");
 const [showBulkForm, setShowBulkForm] = useState(false);
 const [bulkPropertyId, setBulkPropertyId] = useState("");
 const [bulkPrefix, setBulkPrefix] = useState("");
@@ -26,6 +27,7 @@ const [bulkStart, setBulkStart] = useState("");
 const [bulkEnd, setBulkEnd] = useState("");
 const [bulkRent, setBulkRent] = useState("");
 const [bulkGarbage, setBulkGarbage] = useState("");
+const [bulkWaterRate, setBulkWaterRate] = useState("");
 const [bulkSaving, setBulkSaving] = useState(false);
 const [bulkResult, setBulkResult] = useState<string | null>(null);
 
@@ -51,7 +53,7 @@ if (data.length > 0) {
 
 async function loadUnits(id: string) {
 setLoading(true);
-const { data, error } = await supabase.from("units").select("id, unit_number, base_rent, garbage_fee, status, property_id, properties!inner(property_name, landlord_id)").eq("properties.landlord_id", id).order("created_at", { ascending: false });
+const { data, error } = await supabase.from("units").select("id, unit_number, base_rent, garbage_fee, water_rate, status, property_id, properties!inner(property_name, landlord_id)").eq("properties.landlord_id", id).order("created_at", { ascending: false });
 if (!error && data) setUnits(data as unknown as Unit[]);
 setLoading(false);
 }
@@ -70,9 +72,10 @@ if (!unitNumber.trim()) { alert("Please enter the unit number."); return; }
 const rent = Number(baseRent);
 if (!Number.isFinite(rent) || rent <= 0) { alert("Please enter a valid monthly rent."); return; }
 const garbage = Number(garbageFee) || 0;
-const { error } = await supabase.from("units").insert({ property_id: propertyId, unit_number: unitNumber.trim(), base_rent: rent, garbage_fee: garbage });
+const water = Number(waterRate) || 0;
+const { error } = await supabase.from("units").insert({ property_id: propertyId, unit_number: unitNumber.trim(), base_rent: rent, garbage_fee: garbage, water_rate: water });
 if (error) { alert("Error saving unit: " + error.message); return; }
-setUnitNumber(""); setBaseRent(""); setGarbageFee(""); setShowForm(false);
+setUnitNumber(""); setBaseRent(""); setGarbageFee(""); setWaterRate(""); setShowForm(false);
 loadUnits(landlordId);
 }
 
@@ -93,13 +96,14 @@ if (count > 200) {
 const rent = Number(bulkRent);
 if (!Number.isFinite(rent) || rent <= 0) { alert("Please enter a valid monthly rent."); return; }
 const garbage = Number(bulkGarbage) || 0;
+const water = Number(bulkWaterRate) || 0;
 const prefix = bulkPrefix.trim();
 
 setBulkSaving(true);
 setBulkResult(null);
 const rows = [];
 for (let n = start; n <= end; n++) {
-  rows.push({ property_id: bulkPropertyId, unit_number: prefix + n, base_rent: rent, garbage_fee: garbage });
+  rows.push({ property_id: bulkPropertyId, unit_number: prefix + n, base_rent: rent, garbage_fee: garbage, water_rate: water });
 }
 const { error, data } = await supabase.from("units").insert(rows).select("id");
 setBulkSaving(false);
@@ -108,7 +112,7 @@ if (error) {
   return;
 }
 setBulkResult("Created " + (data ? data.length : rows.length) + " units: " + prefix + start + " to " + prefix + end + ".");
-setBulkPrefix(""); setBulkStart(""); setBulkEnd(""); setBulkRent(""); setBulkGarbage("");
+setBulkPrefix(""); setBulkStart(""); setBulkEnd(""); setBulkRent(""); setBulkGarbage(""); setBulkWaterRate("");
 loadUnits(landlordId);
 }
 
@@ -195,9 +199,16 @@ return (
                 <input type="number" min="0" value={bulkRent} onChange={(e) => setBulkRent(e.target.value)} placeholder="e.g. 15000" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
               </div>
             </div>
-            <div className="mt-5 max-w-xs">
-              <label className="mb-2 block text-sm font-medium text-slate-700">Garbage Fee (KSh, optional)</label>
-              <input type="number" min="0" value={bulkGarbage} onChange={(e) => setBulkGarbage(e.target.value)} placeholder="e.g. 200" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            <div className="mt-5 grid gap-5 max-w-xl md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Garbage Fee (KSh, optional)</label>
+                <input type="number" min="0" value={bulkGarbage} onChange={(e) => setBulkGarbage(e.target.value)} placeholder="e.g. 200" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Water Rate (KSh per unit, optional)</label>
+                <input type="number" min="0" value={bulkWaterRate} onChange={(e) => setBulkWaterRate(e.target.value)} placeholder="e.g. 150" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+                <p className="mt-1 text-xs text-slate-400">Charged per unit of consumption on the tenant's meter, once you start recording readings.</p>
+              </div>
             </div>
             {bulkPrefix.trim() !== "" && bulkStart !== "" && bulkEnd !== "" && Number(bulkEnd) >= Number(bulkStart) && (
               <p className="mt-4 text-sm text-slate-500">Will create {Number(bulkEnd) - Number(bulkStart) + 1} units: {bulkPrefix}{bulkStart} to {bulkPrefix}{bulkEnd}</p>
@@ -239,6 +250,10 @@ return (
               <label className="mb-2 block text-sm font-medium text-slate-700">Garbage Fee (KSh)</label>
               <input type="number" min="0" value={garbageFee} onChange={(e) => setGarbageFee(e.target.value)} placeholder="e.g. 200" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
             </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Water Rate (KSh per unit)</label>
+              <input type="number" min="0" value={waterRate} onChange={(e) => setWaterRate(e.target.value)} placeholder="e.g. 150" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
           </div>
         )}
         <div className="mt-6 flex gap-3">
@@ -276,21 +291,23 @@ return (
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Unit</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Property</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Monthly Rent</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Water Rate</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Status</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600"></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-500">Loading units...</td></tr>
+              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">Loading units...</td></tr>
             ) : units.length === 0 ? (
-              <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-500">No units have been added yet.</td></tr>
+              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">No units have been added yet.</td></tr>
             ) : (
               units.map((unit) => (
                 <tr key={unit.id} className="border-t">
                   <td className="px-6 py-4">{unit.unit_number}</td>
                   <td className="px-6 py-4">{unit.properties?.property_name || "—"}</td>
                   <td className="px-6 py-4">KSh {Number(unit.base_rent).toLocaleString()}</td>
+                  <td className="px-6 py-4">{Number(unit.water_rate) > 0 ? "KSh " + Number(unit.water_rate).toLocaleString() + "/unit" : "—"}</td>
                   <td className="px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold capitalize " + statusPill(unit.status)}>{unit.status}</span></td>
                   <td className="px-6 py-4 space-x-3">
                     {unit.status === "vacant" && (

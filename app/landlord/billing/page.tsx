@@ -62,7 +62,7 @@ function LandlordBillingInner() {
     let sub = (
       await supabase
         .from("landlord_subscriptions")
-        .select("plan, billing_cycle, status, current_period_end")
+        .select("plan, billing_cycle, status, current_period_end, trial_ends_at")
         .eq("landlord_id", sessionData.session.user.id)
         .maybeSingle()
     ).data;
@@ -231,6 +231,10 @@ function LandlordBillingInner() {
   }
 
   const isActive = subscription?.status === "active";
+  const isTrial = subscription?.status === "trial";
+  const trialDaysLeft = isTrial && subscription?.trial_ends_at
+    ? Math.max(0, Math.ceil((new Date(subscription.trial_ends_at).getTime() - Date.now()) / 86400000))
+    : 0;
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-12">
@@ -247,6 +251,12 @@ function LandlordBillingInner() {
             <p className="mt-1 text-sm text-emerald-700">
               Renews {new Date(subscription.current_period_end).toLocaleDateString()}
             </p>
+          </div>
+        )}
+
+        {isTrial && (
+          <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50 px-6 py-4 text-sm text-sky-800">
+            You&rsquo;re on a free trial — {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left. We&rsquo;ll automatically send an M-Pesa prompt for the {subscription.plan} plan when it ends, or you can pay early below to unlock your full portfolio sooner (trial accounts are limited to 3 units).
           </div>
         )}
 

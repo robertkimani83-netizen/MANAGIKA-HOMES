@@ -36,8 +36,9 @@ setLoading(true);
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) { window.location.href = "/landlord/login"; return; }
   const landlordId = user.id;
-  const { data: subscription } = await supabase.from("landlord_subscriptions").select("status").eq("landlord_id", landlordId).maybeSingle();
-  if (!subscription || subscription.status !== "active") { window.location.href = "/landlord/billing"; return; }
+  const { data: subscription } = await supabase.from("landlord_subscriptions").select("status, trial_ends_at").eq("landlord_id", landlordId).maybeSingle();
+  const onLiveTrial = subscription?.status === "trial" && (!subscription.trial_ends_at || new Date(subscription.trial_ends_at) > new Date());
+  if (!subscription || (subscription.status !== "active" && !onLiveTrial)) { window.location.href = "/landlord/billing"; return; }
   const { data: landlordProperties } = await supabase.from("properties").select("id").eq("landlord_id", landlordId);
   const propertyIds = (landlordProperties || []).map((p) => p.id);
   let landlordUnits: { id: string; base_rent: number; status: string }[] = [];
@@ -167,6 +168,7 @@ return (
             <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💳 Payment Settings</a>
             <a href="/team" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🧑‍🤝‍🧑 Team &amp; Caretakers</a>
             <a href="/screening" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🔎 Tenant Screening</a>
+            <a href="https://wa.me/97431502816?text=Hi%20Managika%20Homes%2C%20I%20need%20help%20with%3A%20" target="_blank" rel="noopener noreferrer" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💬 Chat on WhatsApp</a>
             <a href="/download-app" className="mh-hide-in-app rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📲 Download App</a>
           </nav>
         </div>

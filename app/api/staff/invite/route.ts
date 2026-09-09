@@ -27,6 +27,18 @@ export async function POST(request: Request) {
   const landlordId = await getLandlordId(request);
   if (!landlordId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Staff invites are a paid-plan feature - free trial accounts can still
+  // try everything else (units, tenants, payments) but can't yet add
+  // other people to their account.
+  const { data: subscription } = await supabaseAdmin
+    .from("landlord_subscriptions")
+    .select("status")
+    .eq("landlord_id", landlordId)
+    .maybeSingle();
+  if (subscription?.status === "trial") {
+    return NextResponse.json({ error: "Inviting staff isn't available during your free trial. Upgrade on your billing page to unlock this." }, { status: 403 });
+  }
+
   const body = await request.json().catch(() => ({}));
   const fullName = (body.fullName || "").trim();
   const email = (body.email || "").trim().toLowerCase();

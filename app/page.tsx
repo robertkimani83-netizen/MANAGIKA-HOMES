@@ -7,9 +7,12 @@ import { supabase } from "@/lib/supabase";
 // The site's homepage - a single landlord-facing page: what Managika Homes
 // is, why it's safe to trust with rent money, pricing, and - right here on
 // this same page, no detour through a separate login screen - the actual
-// "pick a plan, create your account, pay by M-Pesa" flow. Nothing else is
-// offered before payment. Once the subscription is confirmed active, the
-// visitor is sent to /start (the landlord/tenant portal chooser).
+// "pick a plan, create your account, start a free 7-day trial" flow. No
+// payment happens at signup. When the trial ends, a scheduled job (see
+// /api/cron/trial-expirations) sends an M-Pesa prompt for the plan chosen
+// here; the landlord can also pay early anytime from /landlord/billing.
+// Once the account exists, the visitor is sent to /start (the
+// landlord/tenant portal chooser).
 const PLANS = [
   { key: "starter", name: "Starter", monthly: 1500, blurb: "A handful of units" },
   { key: "growth", name: "Growth", monthly: 3000, blurb: "Most chosen" },
@@ -45,6 +48,10 @@ const FAQS = [
     q: "How is pricing calculated?",
     a: "Each plan has a monthly minimum that covers a band of units, then a per-unit rate as your portfolio grows — so a 4-unit property and a 400-unit estate both pay a fair rate. See the pricing table above for exact numbers.",
   },
+  {
+    q: "What happens after my free trial?",
+    a: "Your 7-day trial lets you add up to 3 units to try things out, no payment needed. When it ends, we send an M-Pesa prompt to the phone number you signed up with for your first month on the plan you picked — or you can pay early anytime from your billing page to unlock your full portfolio sooner.",
+  },
 ];
 
 export default function Home() {
@@ -59,106 +66,8 @@ export default function Home() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [creatingAccount, setCreatingAccount] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
-  // "pay" - only the M-Pesa phone number + Pay button are shown; nothing
-  // is charged to an account yet because no account exists. "paid" - the
-  // payment succeeded (confirmed via polling signup-stk-status) and we now
-  // show Full Name / Email / Password to actually create the account and
-  // claim the payment via signup-finalize.
-  const [stage, setStage] = useState<"pay" | "paid">("pay");
-  const [invoiceId, setInvoiceId] = useState("");
-  // "mpesa" pushes an STK prompt without leaving the page. "card" redirects
-  // the browser to IntaSend's hosted checkout page (required for entering
-  // card details securely) and back again once payment finishes.
-  const [payMethod, setPayMethod] = useState<"mpesa" | "card">("mpesa");
-
-  // IntaSend's response shape for a rejected request isn't always a plain
-  // string (validation errors can come back as a nested object) - never
-  // hand that straight to setError, or React ends up rendering
-  // "[object Object]" instead of a message.
-  function errMsg(result: any, fallback: string) {
-    return typeof result?.error === "string" ? result.error : fallback;
-  }
-
-  // Keeps checking signup-stk-status until it settles. Used both right
-  // after an M-Pesa push, and when the visitor lands back on this page
-  // after paying by card on IntaSend's hosted checkout (a full page
-  // redirect away and back, so nothing here is still "running" - this is
-  // what picks the payment back up).
-  function pollPaymentStatus(invId: string) {
-    let attempts = 0;
-    const poll = setInterval(async () => {
-      attempts += 1;
-      try {
-        const r = await fetch("/api/signup-stk-status?invoice_id=" + encodeURIComponent(invId));
-        const j = await r.json();
-        if (j.status === "success") {
-          clearInterval(poll);
-          setSubmitting(false);
-          setStatus("Payment received! Create your account below to finish.");
-          setStage("paid");
-          return;
-        }
-        if (j.status === "failed") {
-          clearInterval(poll);
-          setSubmitting(false);
-          setStatus("");
-          setError("The payment didn't go through. Please try again.");
-          try {
-            localStorage.removeItem("managika_pending_invoice");
-          } catch {}
-          return;
-        }
-      } catch {}
-      if (attempts >= 20) {
-        clearInterval(poll);
-        setSubmitting(false);
-        setStatus("");
-        setError("Didn't see the payment come through yet. If you completed it, wait a moment then try again.");
-      }
-    }, 3000);
-  }
-
-  // If a payment is still pending from before (most importantly: the
-  // visitor just paid by card and IntaSend redirected them back here),
-  // pick up where it left off instead of showing a blank "pay" form again.
-  useEffect(() => {
-    let pending = "";
-    try {
-      pending = localStorage.getItem("managika_pending_invoice") || "";
-    } catch {}
-    if (!pending) return;
-
-    setInvoiceId(pending);
-    setSubmitting(true);
-    setStatus("Checking your payment...");
-
-    (async () => {
-      try {
-        const r = await fetch("/api/signup-stk-status?invoice_id=" + encodeURIComponent(pending));
-        const j = await r.json();
-        if (j.status === "success") {
-          setSubmitting(false);
-          setStatus("Payment received! Create your account below to finish.");
-          setStage("paid");
-          return;
-        }
-        if (j.status === "failed") {
-          setSubmitting(false);
-          setStatus("");
-          setError("That payment didn't go through. Please try again.");
-          try {
-            localStorage.removeItem("managika_pending_invoice");
-          } catch {}
-          return;
-        }
-      } catch {}
-      // Still pending (or the check failed transiently) - keep watching it.
-      pollPaymentStatus(pending);
-    })();
-  }, []);
 
   useEffect(() => {
     const sky = skylineRef.current;
@@ -188,90 +97,14 @@ export default function Home() {
     sky.appendChild(horizon);
   }, []);
 
-  // Stage 1, M-Pesa: no account exists yet - just send the STK push and
-  // wait for it to actually complete before asking for anything else.
-  async function payWithMpesa() {
-    setError("");
-    if (!phone.trim()) {
-      setError("Enter the M-Pesa phone number to pay from.");
-      return;
-    }
-    setSubmitting(true);
-    setStatus("Sending payment prompt to your phone...");
-
-    try {
-      const res = await fetch("/api/signup-stk-push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: selectedPlan, billingCycle, phoneNumber: phone.trim() }),
-      });
-      const result = await res.json();
-
-      if (!res.ok || result.error || !result.invoice_id) {
-        setError(errMsg(result, "M-Pesa did not accept this request."));
-        setSubmitting(false);
-        setStatus("");
-        return;
-      }
-
-      setInvoiceId(result.invoice_id);
-      try {
-        localStorage.setItem("managika_pending_invoice", result.invoice_id);
-      } catch {}
-      setStatus("Check your phone and enter your M-Pesa PIN to complete the payment.");
-      pollPaymentStatus(result.invoice_id);
-    } catch (e: any) {
-      setError(e.message || "Something went wrong starting the payment.");
-      setSubmitting(false);
-      setStatus("");
-    }
-  }
-
-  // Stage 1, Card: cards can't be charged from our backend directly - the
-  // customer has to enter their card details on IntaSend's own hosted,
-  // PCI-compliant checkout page. So this redirects the whole browser tab
-  // there, and IntaSend redirects back here once payment finishes; the
-  // "resume a pending payment" effect above is what picks it back up.
-  async function payWithCard() {
-    setError("");
-    if (!email.trim() || !email.includes("@")) {
-      setError("Enter a valid email address to pay by card.");
-      return;
-    }
-    setSubmitting(true);
-    setStatus("Redirecting you to our secure card payment page...");
-
-    try {
-      const res = await fetch("/api/signup-checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: selectedPlan, billingCycle, email: email.trim() }),
-      });
-      const result = await res.json();
-
-      if (!res.ok || result.error || !result.url || !result.id) {
-        setError(errMsg(result, "Could not start the card payment."));
-        setSubmitting(false);
-        setStatus("");
-        return;
-      }
-
-      try {
-        localStorage.setItem("managika_pending_invoice", result.id);
-      } catch {}
-      window.location.href = result.url;
-    } catch (e: any) {
-      setError(e.message || "Something went wrong starting the card payment.");
-      setSubmitting(false);
-      setStatus("");
-    }
-  }
-
-  // Stage 2: payment already succeeded (confirmed via signup-stk-status).
-  // Now actually create the account and claim that payment.
+  // No payment happens here - just create the account and start a 7-day
+  // free trial on the plan/cycle chosen above. The trial itself is set up
+  // by inserting a landlord_subscriptions row with status "trial" and
+  // trial_ends_at 7 days out; /api/cron/trial-expirations picks it up
+  // automatically once that date passes.
   async function createAccount() {
     setError("");
-    if (!fullName.trim() || !email.trim() || !password) {
+    if (!fullName.trim() || !email.trim() || !phone.trim() || !password) {
       setError("Please fill in all fields.");
       return;
     }
@@ -279,7 +112,7 @@ export default function Home() {
       setError("Password must be at least 6 characters.");
       return;
     }
-    setCreatingAccount(true);
+    setSubmitting(true);
     setStatus("Creating your account...");
 
     const { data, error: signupError } = await supabase.auth.signUp({
@@ -289,51 +122,42 @@ export default function Home() {
     });
     if (signupError) {
       setError(signupError.message);
-      setCreatingAccount(false);
+      setSubmitting(false);
       setStatus("");
       return;
     }
     if (!data.user) {
       setError("Could not create your account. Please try again.");
-      setCreatingAccount(false);
+      setSubmitting(false);
       setStatus("");
       return;
     }
 
     await supabase.from("landlords").insert({ id: data.user.id, full_name: fullName.trim(), email: email.trim(), phone_number: phone.trim() });
 
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + 7);
+    await supabase.from("landlord_subscriptions").upsert(
+      {
+        landlord_id: data.user.id,
+        plan: selectedPlan,
+        billing_cycle: billingCycle,
+        status: "trial",
+        trial_ends_at: trialEndsAt.toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "landlord_id" }
+    );
+
     if (!data.session) {
-      setCreatingAccount(false);
+      setSubmitting(false);
       setStatus("");
-      setError(
-        "Account created - check your email to confirm it, then log in. Your payment is saved and will be applied automatically once you log in."
-      );
+      setError("Account created - check your email to confirm it, then log in to start your free trial.");
       return;
     }
 
-    try {
-      const res = await fetch("/api/signup-finalize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + data.session.access_token },
-        body: JSON.stringify({ invoice_id: invoiceId }),
-      });
-      const result = await res.json();
-      if (!res.ok || result.error) {
-        setError(errMsg(result, "Could not finish activating your subscription. Please contact support."));
-        setCreatingAccount(false);
-        setStatus("");
-        return;
-      }
-      try {
-        localStorage.removeItem("managika_pending_invoice");
-      } catch {}
-      setStatus("All set - taking you onward...");
-      setTimeout(() => router.push("/start"), 1200);
-    } catch (e: any) {
-      setError(e.message || "Something went wrong finishing setup.");
-      setCreatingAccount(false);
-      setStatus("");
-    }
+    setStatus("All set - taking you onward...");
+    setTimeout(() => router.push("/start"), 1000);
   }
 
   const activePlan = PLANS.find((p) => p.key === selectedPlan) || PLANS[1];
@@ -748,8 +572,8 @@ export default function Home() {
           <section id="get-started">
             <div className="lp-section-head lp-center">
               <span className="lp-kicker">Get started</span>
-              <h2>Pay by M-Pesa first — then create your account</h2>
-              <p>Pick your plan and enter the M-Pesa number to pay from. Once the payment is confirmed, you&rsquo;ll create your account and be taken straight on to set up your portfolio.</p>
+              <h2>Start your free 7-day trial</h2>
+              <p>No payment today. Pick a plan as a starting point, create your account, and get straight to setting up your portfolio (up to 3 units on trial). We&rsquo;ll send an M-Pesa prompt for your first payment when the trial ends — or pay early anytime from your billing page.</p>
             </div>
 
             <div className="lp-start">
@@ -769,63 +593,32 @@ export default function Home() {
 
               <div className="lp-start-price">
                 <span className="lp-amt mono">KSh {activePrice.toLocaleString()}</span>
-                <span className="lp-unit">/ {billingCycle === "annual" ? "year" : "month"} minimum</span>
+                <span className="lp-unit">/ {billingCycle === "annual" ? "year" : "month"} minimum, after your free trial</span>
               </div>
 
-              {stage === "pay" && (
-                <>
-                  <div className="lp-start-toggle">
-                    <button type="button" className={payMethod === "mpesa" ? "active" : ""} onClick={() => setPayMethod("mpesa")}>M-Pesa</button>
-                    <button type="button" className={payMethod === "card" ? "active" : ""} onClick={() => setPayMethod("card")}>Card</button>
-                  </div>
-                  {payMethod === "mpesa" ? (
-                    <div className="lp-start-field">
-                      <label>M-Pesa Phone Number</label>
-                      <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" />
-                    </div>
-                  ) : (
-                    <div className="lp-start-field">
-                      <label>Email address</label>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-                    </div>
-                  )}
-                </>
-              )}
-
-              {stage === "paid" && (
-                <>
-                  <div className="lp-start-field">
-                    <label>Full Name</label>
-                    <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Robert Kimani" />
-                  </div>
-                  <div className="lp-start-field">
-                    <label>Email address</label>
-                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-                  </div>
-                  <div className="lp-start-field">
-                    <label>Password</label>
-                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" />
-                  </div>
-                </>
-              )}
+              <div className="lp-start-field">
+                <label>Full Name</label>
+                <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Robert Kimani" />
+              </div>
+              <div className="lp-start-field">
+                <label>Email address</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+              </div>
+              <div className="lp-start-field">
+                <label>M-Pesa Phone Number</label>
+                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" />
+              </div>
+              <div className="lp-start-field">
+                <label>Password</label>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" />
+              </div>
 
               {error && <div className="lp-start-error">{error}</div>}
               {status && <div className="lp-start-status">{status}</div>}
 
-              {stage === "pay" ? (
-                <button
-                  type="button"
-                  className="lp-start-submit"
-                  disabled={submitting}
-                  onClick={payMethod === "mpesa" ? payWithMpesa : payWithCard}
-                >
-                  {submitting ? "Please wait..." : payMethod === "mpesa" ? "Pay with M-Pesa" : "Pay with Card"}
-                </button>
-              ) : (
-                <button type="button" className="lp-start-submit" disabled={creatingAccount} onClick={createAccount}>
-                  {creatingAccount ? "Please wait..." : "Create account & continue"}
-                </button>
-              )}
+              <button type="button" className="lp-start-submit" disabled={submitting} onClick={createAccount}>
+                {submitting ? "Please wait..." : "Start my free trial"}
+              </button>
 
               <p className="lp-start-login">Already have an account? <a href="/landlord/login">Log in</a></p>
             </div>
