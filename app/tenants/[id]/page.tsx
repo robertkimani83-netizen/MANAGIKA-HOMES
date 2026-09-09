@@ -70,6 +70,11 @@ async function loadWaterReadings() {
   }
 }
 
+async function loadInvoices() {
+  const { data: invoiceRows } = await supabase.from("invoices").select("id, billing_period, rent_amount, water_amount, total_due, status, due_date").eq("tenant_id", tenantId).order("due_date", { ascending: false });
+  setInvoices(invoiceRows || []);
+}
+
 async function saveMeterReading() {
   const reading = Number(meterReading);
   if (!Number.isFinite(reading) || reading < 0) { setWaterMessage("Please enter a valid meter reading."); return; }
@@ -88,7 +93,13 @@ async function saveMeterReading() {
     " added to the " + result.billingPeriod + " invoice."
   );
   setMeterReading("");
+  // The invoice this reading just billed against needs to show its new
+  // water_amount/total_due right away - without this, the Invoice History
+  // table below stays stuck showing rent-only totals until the landlord
+  // reloads the page, even though the invoice was already updated in the
+  // database.
   await loadWaterReadings();
+  await loadInvoices();
 }
 
 async function viewDocument(id: string) {
@@ -140,8 +151,7 @@ setLandlordId(data.user.id);
   }
   setUnitOptions(options);
 
-  const { data: invoiceRows } = await supabase.from("invoices").select("id, billing_period, rent_amount, water_amount, total_due, status, due_date").eq("tenant_id", tenantId).order("due_date", { ascending: false });
-  setInvoices(invoiceRows || []);
+  await loadInvoices();
 
   const { data: maintenanceRows } = await supabase.from("maintenance_requests").select("id, title, description, urgency, status, created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false });
   setMaintenance(maintenanceRows || []);
