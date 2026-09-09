@@ -98,10 +98,12 @@ export default function Home() {
   }, []);
 
   // No payment happens here - just create the account and start a 7-day
-  // free trial on the plan/cycle chosen above. The trial itself is set up
-  // by inserting a landlord_subscriptions row with status "trial" and
-  // trial_ends_at 7 days out; /api/cron/trial-expirations picks it up
-  // automatically once that date passes.
+  // free trial on the plan/cycle chosen above. landlord_subscriptions has
+  // no client-facing write policy on purpose (a logged-in landlord could
+  // otherwise set their own status to "active" for free), so the actual
+  // trial row is created by /api/signup-trial using the service role, not
+  // by inserting from here directly. /api/cron/trial-expirations picks
+  // the trial up automatically once trial_ends_at passes.
   async function createAccount() {
     setError("");
     if (!fullName.trim() || !email.trim() || !phone.trim() || !password) {
@@ -135,24 +137,24 @@ export default function Home() {
 
     await supabase.from("landlords").insert({ id: data.user.id, full_name: fullName.trim(), email: email.trim(), phone_number: phone.trim() });
 
-    const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + 7);
-    await supabase.from("landlord_subscriptions").upsert(
-      {
-        landlord_id: data.user.id,
-        plan: selectedPlan,
-        billing_cycle: billingCycle,
-        status: "trial",
-        trial_ends_at: trialEndsAt.toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "landlord_id" }
-    );
-
     if (!data.session) {
       setSubmitting(false);
       setStatus("");
       setError("Account created - check your email to confirm it, then log in to start your free trial.");
+      return;
+    }
+
+    setStatus("Starting your free trial...");
+    const trialRes = await fetch("/api/signup-trial", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + data.session.access_token },
+      body: JSON.stringify({ plan: selectedPlan, billingCycle }),
+    });
+    const trialResult = await trialRes.json().catch(() => ({}));
+    if (!trialRes.ok) {
+      setSubmitting(false);
+      setStatus("");
+      setError(typeof trialResult?.error === "string" ? trialResult.error : "Your account was created, but we couldn't start your trial. Please log in and try again from your billing page.");
       return;
     }
 
