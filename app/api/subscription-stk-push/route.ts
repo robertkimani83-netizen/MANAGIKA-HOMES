@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/tenant-phone";
+import { extractIntasendError } from "@/lib/intasend-error";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -105,14 +106,7 @@ export async function POST(request: Request) {
     const invoice = intasendResult?.invoice;
 
     if (!intasendRes.ok || !invoice?.invoice_id) {
-      const rawMessage =
-        intasendResult?.detail ||
-        intasendResult?.message ||
-        (Array.isArray(intasendResult?.errors) ? intasendResult.errors.join(", ") : null);
-      // IntaSend's validation errors can come back as a nested object
-      // rather than a plain string - only ever forward it on if it
-      // actually is one, so the browser never renders "[object Object]".
-      const message = typeof rawMessage === "string" && rawMessage ? rawMessage : "M-Pesa did not accept this request.";
+      const message = extractIntasendError(intasendResult) || "M-Pesa did not accept this request.";
       return NextResponse.json({ error: message }, { status: 502 });
     }
 

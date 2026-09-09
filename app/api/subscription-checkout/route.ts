@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { extractIntasendError } from "@/lib/intasend-error";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -87,11 +88,8 @@ export async function POST(request: Request) {
     const checkoutUrl = intasendResult?.url;
 
     if (!intasendRes.ok || !checkoutId || !checkoutUrl) {
-      const rawMessage =
-        intasendResult?.detail ||
-        intasendResult?.message ||
-        (Array.isArray(intasendResult?.errors) ? intasendResult.errors.join(", ") : null);
-      const message = typeof rawMessage === "string" && rawMessage ? rawMessage : "Card payment could not be started.";
+      console.log("[subscription-checkout] IntaSend error response:", intasendRes.status, JSON.stringify(intasendResult));
+      const message = extractIntasendError(intasendResult) || "Card payment could not be started.";
       return NextResponse.json({ error: message }, { status: 502 });
     }
 

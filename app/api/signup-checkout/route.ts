@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { extractIntasendError } from "@/lib/intasend-error";
 
 // Prices are fixed here on the server — never trusted from the client.
 // Must match PLAN_PRICES in subscription-stk-push, signup-stk-push, and
@@ -75,14 +76,11 @@ export async function POST(request: Request) {
     const checkoutUrl = intasendResult?.url;
 
     if (!intasendRes.ok || !checkoutId || !checkoutUrl) {
-      const rawMessage =
-        intasendResult?.detail ||
-        intasendResult?.message ||
-        (Array.isArray(intasendResult?.errors) ? intasendResult.errors.join(", ") : null);
-      // IntaSend's validation errors can come back as a nested object
-      // rather than a plain string - only ever forward it on if it
-      // actually is one, so the browser never renders "[object Object]".
-      const message = typeof rawMessage === "string" && rawMessage ? rawMessage : "Card payment could not be started.";
+      // Diagnostic only — no card data or secrets in this body, just
+      // whatever validation error IntaSend sent back. Helps confirm the
+      // exact shape the first time a new kind of error shows up.
+      console.log("[signup-checkout] IntaSend error response:", intasendRes.status, JSON.stringify(intasendResult));
+      const message = extractIntasendError(intasendResult) || "Card payment could not be started.";
       return NextResponse.json({ error: message }, { status: 502 });
     }
 
