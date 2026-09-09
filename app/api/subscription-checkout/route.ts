@@ -66,10 +66,14 @@ export async function POST(request: Request) {
 
     const apiRef = "managika-card-" + plan + "-" + landlordId.slice(0, 8) + "-" + Date.now();
 
+    // Unlike the Collection API (M-Pesa STK push), IntaSend's Express
+    // Checkout endpoint does NOT take an Authorization header — it
+    // authenticates purely from the public_key in the body. Sending a
+    // Bearer secret-key header here is what was causing IntaSend to
+    // reject every request with 401 "Session expired" / authentication_failed.
     const intasendRes = await fetch(INTASEND_BASE + "/api/v1/checkout/", {
       method: "POST",
       headers: {
-        Authorization: "Bearer " + secretKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
