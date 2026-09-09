@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
+import { sendWhatsappTemplate } from "@/lib/whatsapp";
 
 function currentPeriod() {
 const d = new Date();
@@ -46,6 +47,7 @@ const sms = africastalking.SMS;
 const senderId = process.env.AFRICASTALKING_SENDER_ID;
 
 let remindersSent = 0;
+let whatsappSent = 0;
 let invoicesCreated = 0;
 const errors: string[] = [];
 
@@ -112,7 +114,16 @@ for (const tenant of (tenants || []) as any[]) {
     continue;
   }
 
-  const message = "Hi " + tenant.full_name + ", your rent of KSh " + balance.toLocaleString() + " for " + period + " (Unit " + unit.unit_number + ") is now due. Kindly pay by the 5th of the month to avoid penalties. - Managika Homes";
+  const message =
+    "Hi " +
+    tenant.full_name +
+    ", your rent of KSh " +
+    balance.toLocaleString() +
+    " for " +
+    period +
+    " (Unit " +
+    unit.unit_number +
+    ") is now due. Kindly pay by the 5th of the month to avoid penalties. View & pay: managikahomes.co.ke/tenant/login - Managika Homes";
 
   try {
     await sms.send({ to: [toKenyanFormat(tenant.phone_number)], message: message, ...(senderId ? { from: senderId } : {}) });
@@ -120,9 +131,28 @@ for (const tenant of (tenants || []) as any[]) {
   } catch (smsError: any) {
     errors.push(tenant.full_name + ": SMS failed - " + (smsError.message || "unknown error"));
   }
+
+  // WhatsApp is sent in addition to SMS, not instead of it - if the
+  // template isn't approved yet or the send otherwise fails, that's logged
+  // here but never blocks the SMS reminder above from having gone out.
+  try {
+    const waResult = await sendWhatsappTemplate(tenant.phone_number, "rent_reminder", "en", [
+      tenant.full_name,
+      balance.toLocaleString(),
+      period,
+      unit.unit_number,
+    ]);
+    if (waResult.ok) {
+      whatsappSent++;
+    } else {
+      errors.push(tenant.full_name + ": WhatsApp failed - " + waResult.error);
+    }
+  } catch (waError: any) {
+    errors.push(tenant.full_name + ": WhatsApp failed - " + (waError.message || "unknown error"));
+  }
 }
 
-return NextResponse.json({ success: true, period, invoicesCreated, remindersSent, errors });
+return NextResponse.json({ success: true, period, invoicesCreated, remindersSent, whatsappSent, errors });
 
 } catch (error: any) {
 return NextResponse.json({ error: error.message || "Cron job failed" }, { status: 500 });

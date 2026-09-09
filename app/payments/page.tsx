@@ -185,6 +185,24 @@ else if (totalPaid > 0) newStatus = "partially_paid";
 const { error: statusError } = await supabase.from("invoices").update({ status: newStatus }).eq("id", invoiceId);
 if (statusError) alert("Payment saved, but invoice status could not be updated: " + statusError.message);
 
+// Rent is now fully paid - notify the tenant over WhatsApp. This is
+// best-effort and never blocks the payment from being saved: the payment
+// and invoice status above are already committed regardless of whether
+// this send succeeds (e.g. the template isn't approved yet).
+if (!statusError && newStatus === "paid") {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token || "";
+    await fetch("/api/send-payment-whatsapp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+      body: JSON.stringify({ invoiceId, amountPaid: amt, reference: reference.trim() || method }),
+    });
+  } catch {
+    // Silently ignore - payment recording already succeeded above.
+  }
+}
+
 setTenantId(""); setAmount(""); setReference(""); setMethod("mpesa"); setShowForm(false);
 loadPayments(landlordId);
 

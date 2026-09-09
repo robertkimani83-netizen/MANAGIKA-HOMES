@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
+import { sendWhatsappTemplate } from "@/lib/whatsapp";
 
 export async function POST(request: Request) {
 try {
@@ -49,10 +50,14 @@ if (resultCode === 0) {
 
   let tenantId = tracked?.tenant_id || null;
   let unitId: string | null = null;
+  let tenantFullName: string | null = null;
+  let tenantPhoneNumber: string | null = null;
 
   if (tenantId) {
-    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("unit_id").eq("id", tenantId).maybeSingle();
+    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("unit_id, full_name, phone_number").eq("id", tenantId).maybeSingle();
     unitId = tenantRow?.unit_id || null;
+    tenantFullName = tenantRow?.full_name || null;
+    tenantPhoneNumber = tenantRow?.phone_number || null;
   } else {
     // Strip to digits only before building the .or() filter string below -
     // that string is handed straight to PostgREST's filter grammar (commas
@@ -61,9 +66,11 @@ if (resultCode === 0) {
     // different tenant's record than intended.
     const phoneStr = String(phoneNumber).replace(/\D/g, "");
     const localFormat = phoneStr.startsWith("254") ? "0" + phoneStr.slice(3) : phoneStr;
-    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("id, unit_id").or("phone_number.eq." + phoneStr + ",phone_number.eq." + localFormat).maybeSingle();
+    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("id, unit_id, full_name, phone_number").or("phone_number.eq." + phoneStr + ",phone_number.eq." + localFormat).maybeSingle();
     tenantId = tenantRow?.id || null;
     unitId = tenantRow?.unit_id || null;
+    tenantFullName = tenantRow?.full_name || null;
+    tenantPhoneNumber = tenantRow?.phone_number || null;
   }
 
   if (tenantId) {
@@ -122,6 +129,28 @@ if (resultCode === 0) {
       const newStatus = totalPaid >= Number(invoice.total_due) ? "paid" : "partially_paid";
 
       await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
+
+      // Rent is now fully settled - let the tenant know over WhatsApp. This
+      // never blocks or fails the M-Pesa callback response itself: Safaricom
+      // needs a 200 back regardless, so any WhatsApp error is swallowed here.
+      if (newStatus === "paid" && tenantPhoneNumber) {
+        try {
+          let unitNumber = "";
+          if (unitId) {
+            const { data: unitRow } = await supabaseAdmin.from("units").select("unit_number").eq("id", unitId).maybeSingle();
+            unitNumber = unitRow?.unit_number || "";
+          }
+          await sendWhatsappTemplate(tenantPhoneNumber, "payment_confirmation", "en", [
+            tenantFullName || "there",
+            Number(amount).toLocaleString(),
+            period,
+            unitNumber,
+            mpesaReceiptNumber || "",
+          ]);
+        } catch {
+          // Best-effort only - the payment itself is already recorded above.
+        }
+      }
     }
   }
 }
