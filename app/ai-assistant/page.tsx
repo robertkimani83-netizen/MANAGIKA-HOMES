@@ -52,19 +52,52 @@ const tenantIds = activeTenants.map((t) => t.id);
 const unpaidLines: string[] = [];
 const paidLines: string[] = [];
 if (tenantIds.length > 0) {
-  const { data: invoices } = await supabase.from("invoices").select("id, tenant_id, total_due, billing_period").in("tenant_id", tenantIds).eq("billing_period", period);
+  // ALL unpaid/partially-paid invoices, any billing period - not just the
+  // current one. A tenant only gets a current-period invoice row once a
+  // payment is recorded for them, or once the once-a-month
+  // invoice-generation cron runs on the 1st - so someone added partway
+  // through the month (after that cron already ran) has no invoice row
+  // at all yet. Looking up only the current period's invoice and
+  // skipping the tenant entirely when none exists (the old behaviour
+  // here) made that tenant invisible to the assistant even though they
+  // clearly owe this month's rent - see the unit-based `expected`
+  // fallback below, which mirrors how /payments already handles this.
+  const { data: unpaidInvoices } = await supabase.from("invoices").select("id, tenant_id, total_due, billing_period").in("tenant_id", tenantIds).neq("status", "paid");
+  const invoiceIds = (unpaidInvoices || []).map((i) => i.id);
+  const paidByInvoice: Record<string, number> = {};
+  const lastPaidAtByInvoice: Record<string, string> = {};
+  if (invoiceIds.length > 0) {
+    const { data: paymentsOnThese } = await supabase.from("payments").select("invoice_id, amount_paid, paid_at").in("invoice_id", invoiceIds);
+    for (const p of paymentsOnThese || []) {
+      paidByInvoice[p.invoice_id] = (paidByInvoice[p.invoice_id] || 0) + (Number(p.amount_paid) || 0);
+      if (p.paid_at && (!lastPaidAtByInvoice[p.invoice_id] || p.paid_at > lastPaidAtByInvoice[p.invoice_id])) {
+        lastPaidAtByInvoice[p.invoice_id] = p.paid_at;
+      }
+    }
+  }
+
   for (const tenant of activeTenants) {
-    const invoice = (invoices || []).find((i) => i.tenant_id === tenant.id);
-    if (!invoice) continue;
-    const { data: payments } = await supabase.from("payments").select("amount_paid, paid_at").eq("invoice_id", invoice.id);
-    const paid = (payments || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
-    const balance = Number(invoice.total_due) - paid;
-    if (balance > 0) {
-      unpaidLines.push(tenant.full_name + " owes KSh " + balance.toLocaleString() + " for " + period);
+    const unit = units.find((u) => u.id === tenant.unit_id);
+    if (!unit || unit.status !== "occupied") continue;
+    const expected = Number(unit.base_rent) || 0;
+    if (expected <= 0) continue;
+
+    const tenantUnpaidInvoices = (unpaidInvoices || []).filter((i) => i.tenant_id === tenant.id);
+    const currentInvoice = tenantUnpaidInvoices.find((i) => i.billing_period === period);
+    const currentPaid = currentInvoice ? (paidByInvoice[currentInvoice.id] || 0) : 0;
+    const currentBalance = Math.max(expected - currentPaid, 0);
+
+    const priorInvoices = tenantUnpaidInvoices.filter((i) => i.billing_period !== period);
+    const priorBalance = priorInvoices.reduce((sum, inv) => sum + Math.max((Number(inv.total_due) || 0) - (paidByInvoice[inv.id] || 0), 0), 0);
+
+    const totalBalance = currentBalance + priorBalance;
+    if (totalBalance > 0) {
+      const note = priorBalance > 0 ? " (includes KSh " + priorBalance.toLocaleString() + " owed from an earlier month)" : " for " + period;
+      unpaidLines.push(tenant.full_name + " owes KSh " + totalBalance.toLocaleString() + note);
     } else {
-      const lastPaidAt = (payments || []).reduce((latest: string, p: any) => (p.paid_at && p.paid_at > latest ? p.paid_at : latest), "");
+      const lastPaidAt = currentInvoice ? lastPaidAtByInvoice[currentInvoice.id] : "";
       const dateStr = lastPaidAt ? new Date(lastPaidAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "date unknown";
-      paidLines.push(tenant.full_name + " paid KSh " + paid.toLocaleString() + " on " + dateStr);
+      paidLines.push(tenant.full_name + " paid KSh " + currentPaid.toLocaleString() + " on " + dateStr);
     }
   }
 }

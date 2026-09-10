@@ -41,9 +41,9 @@ setLoading(true);
   if (!subscription || (subscription.status !== "active" && !onLiveTrial)) { window.location.href = "/landlord/billing"; return; }
   const { data: landlordProperties } = await supabase.from("properties").select("id").eq("landlord_id", landlordId);
   const propertyIds = (landlordProperties || []).map((p) => p.id);
-  let landlordUnits: { id: string; base_rent: number; status: string }[] = [];
+  let landlordUnits: { id: string; base_rent: number; status: string; unit_number: string }[] = [];
   if (propertyIds.length > 0) {
-    const { data: units } = await supabase.from("units").select("id, base_rent, status").in("property_id", propertyIds);
+    const { data: units } = await supabase.from("units").select("id, base_rent, status, unit_number").in("property_id", propertyIds);
     landlordUnits = units || [];
   }
   const unitIds = landlordUnits.map((u) => u.id);
@@ -51,9 +51,10 @@ setLoading(true);
   const rentExpected = occupiedUnits.reduce((sum, u) => sum + (Number(u.base_rent) || 0), 0);
   const period = currentPeriod();
   let collected = 0;
-  const { data: tenantsForPeriod } = await supabase.from("tenants").select("id, status").eq("landlord_id", landlordId);
+  const { data: tenantsForPeriod } = await supabase.from("tenants").select("id, status, full_name, unit_id").eq("landlord_id", landlordId);
   const tenantIds = (tenantsForPeriod || []).map((t) => t.id);
-  const tenantCountResult = (tenantsForPeriod || []).filter((t) => t.status === "active").length;
+  const activeTenantRows = (tenantsForPeriod || []).filter((t) => t.status === "active");
+  const tenantCountResult = activeTenantRows.length;
   if (tenantIds.length > 0) {
     const { data: invoicesThisPeriod } = await supabase.from("invoices").select("id").in("tenant_id", tenantIds).eq("billing_period", period);
     const invoiceIds = (invoicesThisPeriod || []).map((i) => i.id);
@@ -62,40 +63,65 @@ setLoading(true);
       collected = (paymentsThisPeriod || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
     }
   }
-  // "What needs your attention today" - who specifically hasn't paid,
-  // across ANY billing period they owe on (not just this one). Without
-  // the neq("status","paid") query below staying period-less, a tenant
-  // who missed last month and hasn't caught up would quietly stop
-  // appearing here - and stop counting toward Outstanding below - the
-  // moment the new month started.
+  // "What needs your attention today" / Outstanding - who specifically
+  // hasn't paid, across ANY billing period they owe on (not just this
+  // one), AND including a tenant who has no current-period invoice row
+  // at all yet - e.g. someone added partway through the month, after the
+  // once-a-month invoice-generation cron already ran on the 1st. Without
+  // the unit-based `expected` fallback below (mirroring how /payments
+  // already handles this), such a tenant is invisible here and silently
+  // excluded from Outstanding even though they clearly owe this month's
+  // rent - they'd only reappear once next month's cron runs.
   let unpaid: UnpaidTenant[] = [];
   let outstandingTotal = 0;
   const { data: unpaidInvoices } = await supabase
     .from("invoices")
-    .select("id, total_due, status, billing_period, tenants!inner(full_name, landlord_id), units(unit_number)")
+    .select("id, tenant_id, total_due, status, billing_period, tenants!inner(full_name, landlord_id), units(unit_number)")
     .eq("tenants.landlord_id", landlordId)
     .neq("status", "paid");
+  const paidByInvoice: Record<string, number> = {};
   if (unpaidInvoices && unpaidInvoices.length > 0) {
     const invoiceIds = (unpaidInvoices as any[]).map((inv) => inv.id);
     const { data: paymentsOnThese } = await supabase.from("payments").select("invoice_id, amount_paid").in("invoice_id", invoiceIds);
-    const paidByInvoice: Record<string, number> = {};
     for (const p of paymentsOnThese || []) {
       paidByInvoice[p.invoice_id] = (paidByInvoice[p.invoice_id] || 0) + (Number(p.amount_paid) || 0);
     }
-    // Group by tenant so someone behind on more than one month gets one
-    // row with their total balance, not a repeated row per invoice.
-    const byTenant: Record<string, UnpaidTenant> = {};
-    for (const inv of unpaidInvoices as any[]) {
-      const balance = Math.max((Number(inv.total_due) || 0) - (paidByInvoice[inv.id] || 0), 0);
-      if (balance <= 0) continue;
-      const key = (inv.tenants?.full_name || "Unknown tenant") + "|" + (inv.units?.unit_number || "");
-      if (!byTenant[key]) byTenant[key] = { name: inv.tenants?.full_name || "Unknown tenant", unit: inv.units?.unit_number || "—", amount: 0, periods: 0 };
-      byTenant[key].amount += balance;
-      byTenant[key].periods += 1;
-      outstandingTotal += balance;
-    }
-    unpaid = Object.values(byTenant);
   }
+  const unitsById: Record<string, { id: string; base_rent: number; status: string; unit_number: string }> = {};
+  for (const u of landlordUnits) unitsById[u.id] = u;
+
+  // Group by tenant so someone behind on more than one month gets one row
+  // with their total balance, not a repeated row per invoice - and so a
+  // tenant with zero real invoice rows still gets evaluated against this
+  // month's expected rent instead of being skipped outright.
+  const byTenant: Record<string, UnpaidTenant> = {};
+  for (const tenant of activeTenantRows as any[]) {
+    const unit = tenant.unit_id ? unitsById[tenant.unit_id] : null;
+    if (!unit || unit.status !== "occupied") continue;
+    const expected = Number(unit.base_rent) || 0;
+    if (expected <= 0) continue;
+
+    const tenantUnpaidInvoices = ((unpaidInvoices || []) as any[]).filter((inv) => inv.tenant_id === tenant.id);
+    const currentInvoice = tenantUnpaidInvoices.find((inv) => inv.billing_period === period);
+    const currentPaid = currentInvoice ? (paidByInvoice[currentInvoice.id] || 0) : 0;
+    const currentBalance = Math.max(expected - currentPaid, 0);
+
+    const priorInvoices = tenantUnpaidInvoices.filter((inv) => inv.billing_period !== period);
+    const priorBalance = priorInvoices.reduce((sum, inv) => sum + Math.max((Number(inv.total_due) || 0) - (paidByInvoice[inv.id] || 0), 0), 0);
+    const priorPeriodsWithBalance = priorInvoices.filter((inv) => (Number(inv.total_due) || 0) - (paidByInvoice[inv.id] || 0) > 0).length;
+
+    const totalBalance = currentBalance + priorBalance;
+    if (totalBalance <= 0) continue;
+
+    byTenant[tenant.id] = {
+      name: tenant.full_name || "Unknown tenant",
+      unit: currentInvoice?.units?.unit_number || priorInvoices[0]?.units?.unit_number || unit.unit_number || "—",
+      amount: totalBalance,
+      periods: priorPeriodsWithBalance + (currentBalance > 0 ? 1 : 0),
+    };
+    outstandingTotal += totalBalance;
+  }
+  unpaid = Object.values(byTenant);
   let openRequestsCount = 0;
   let urgentRequestsCount = 0;
   let openComplaintsCount = 0;
