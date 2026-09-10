@@ -10,6 +10,15 @@ const PLANS = [
   { key: "portfolio", name: "Portfolio", price: 6500, blurb: "For larger, established portfolios" },
 ];
 
+// IntaSend has card payments temporarily disabled on their end ("aligning
+// with new licensing requirements from our partners", per their own
+// dashboard notice as of Sep 2026) - Managika's own checkout call still
+// succeeds and opens a real IntaSend page, so without this flag a landlord
+// could fill in their card details and only find out it doesn't work at
+// the very end. Flip this back to true once IntaSend re-enables card
+// payments on their side.
+const CARD_PAYMENTS_ENABLED = false;
+
 function annualPrice(monthly: number) {
   return Math.round(monthly * 12 * 0.8);
 }
@@ -342,17 +351,25 @@ function LandlordBillingInner() {
             </button>
             <button
               type="button"
-              onClick={() => setPayMethod("card")}
+              disabled={!CARD_PAYMENTS_ENABLED}
+              title={CARD_PAYMENTS_ENABLED ? undefined : "Card payments are temporarily unavailable"}
+              onClick={() => CARD_PAYMENTS_ENABLED && setPayMethod("card")}
               className={
                 "rounded-md px-4 py-2 text-sm font-semibold transition " +
-                (payMethod === "card" ? "bg-slate-900 text-white" : "text-slate-600")
+                (!CARD_PAYMENTS_ENABLED
+                  ? "cursor-not-allowed text-slate-300"
+                  : payMethod === "card" ? "bg-slate-900 text-white" : "text-slate-600")
               }
             >
               Card
             </button>
           </div>
 
-          {payMethod === "mpesa" ? (
+          {!CARD_PAYMENTS_ENABLED && (
+            <p className="mb-4 text-sm text-amber-700">Card payments are temporarily unavailable — please pay with M-Pesa for now.</p>
+          )}
+
+          {payMethod === "mpesa" || !CARD_PAYMENTS_ENABLED ? (
             <>
               <label className="mb-2 block text-sm font-semibold text-slate-700">M-Pesa phone number</label>
               <input
@@ -375,10 +392,10 @@ function LandlordBillingInner() {
           <button
             type="button"
             disabled={paying}
-            onClick={payMethod === "mpesa" ? payWithMpesa : payWithCard}
+            onClick={payMethod === "mpesa" || !CARD_PAYMENTS_ENABLED ? payWithMpesa : payWithCard}
             className="mt-6 w-full rounded-lg bg-amber-500 px-4 py-3 font-bold text-slate-900 transition hover:bg-amber-400 disabled:opacity-60"
           >
-            {paying ? "Processing..." : payMethod === "mpesa" ? "Pay with M-Pesa" : "Pay with Card"}
+            {paying ? "Processing..." : payMethod === "mpesa" || !CARD_PAYMENTS_ENABLED ? "Pay with M-Pesa" : "Pay with Card"}
           </button>
         </div>
 
