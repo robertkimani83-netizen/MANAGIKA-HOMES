@@ -21,7 +21,13 @@ paid_at: string;
 invoices: { id: string; billing_period: string; total_due: number; status: string; tenants: { id: string; full_name: string } | null; units: { unit_number: string } | null } | null;
 };
 
-type TenantSummary = { tenant: Tenant; expected: number; paid: number; balance: number; status: string };
+type TenantSummary = { tenant: Tenant; expected: number; paid: number; balance: number; status: string; priorBalance: number };
+
+// An invoice that isn't fully paid, from ANY billing period - not just the
+// current month. Without this, a tenant who misses a month and then pays
+// the next one normally has that old unpaid invoice quietly disappear from
+// every total on this page (it's only ever matched against `period`).
+type UnpaidInvoice = { id: string; billing_period: string; total_due: number; status: string; tenant_id: string };
 
 type PaymentClaim = {
 id: string;
@@ -55,6 +61,8 @@ const [claims, setClaims] = useState<PaymentClaim[]>([]);
 const [loadingClaims, setLoadingClaims] = useState(true);
 const [resolvingClaimId, setResolvingClaimId] = useState<string | null>(null);
 const [authToken, setAuthToken] = useState("");
+const [unpaidInvoices, setUnpaidInvoices] = useState<UnpaidInvoice[]>([]);
+const [savingPayment, setSavingPayment] = useState(false);
 
 const period = currentPeriod();
 
@@ -113,6 +121,11 @@ const { data, error } = await supabase.from("tenants").select("id, full_name, un
 if (!error && data) setTenants(data as unknown as Tenant[]);
 }
 
+async function loadUnpaidInvoices(id: string) {
+const { data, error } = await supabase.from("invoices").select("id, billing_period, total_due, status, tenant_id, tenants!inner(landlord_id)").eq("tenants.landlord_id", id).neq("status", "paid");
+if (!error && data) setUnpaidInvoices(data as unknown as UnpaidInvoice[]);
+}
+
 async function exportLedger() {
 if (!authToken) { alert("Please wait for the page to finish loading and try again."); return; }
 try {
@@ -147,16 +160,20 @@ useEffect(() => {
 if (!landlordId) return;
 loadTenants(landlordId);
 loadPayments(landlordId);
+loadUnpaidInvoices(landlordId);
 }, [landlordId]);
 
 async function recordPayment() {
 if (!landlordId) { alert("You must be logged in."); return; }
+if (savingPayment) return; // already submitting - ignore a second click/tap instead of recording the payment twice
 if (!tenantId) { alert("Please select a tenant."); return; }
 const amt = Number(amount);
 if (!Number.isFinite(amt) || amt <= 0) { alert("Please enter a valid amount."); return; }
 const tenant = tenants.find((t) => t.id === tenantId);
 if (!tenant || !tenant.units) { alert("This tenant has no unit assigned yet."); return; }
 const rent = Number(tenant.units.base_rent) || 0;
+setSavingPayment(true);
+try {
 
 const { data: existingInvoice, error: invoiceLookupError } = await supabase.from("invoices").select("id, total_due").eq("tenant_id", tenantId).eq("billing_period", period).maybeSingle();
 if (invoiceLookupError) { alert("Error checking invoice: " + invoiceLookupError.message); return; }
@@ -205,6 +222,11 @@ if (!statusError && newStatus === "paid") {
 
 setTenantId(""); setAmount(""); setReference(""); setMethod("mpesa"); setShowForm(false);
 loadPayments(landlordId);
+loadUnpaidInvoices(landlordId);
+
+} finally {
+setSavingPayment(false);
+}
 
 }
 
@@ -232,6 +254,14 @@ setSendingId(null);
 
 const currentPayments = payments.filter((p) => p.invoices?.billing_period === period);
 
+// How much has already been paid against each unpaid invoice, so a
+// partially-paid older invoice doesn't get counted as its full total_due.
+const paidByInvoice: Record<string, number> = {};
+for (const p of payments) {
+if (!p.invoices?.id) continue;
+paidByInvoice[p.invoices.id] = (paidByInvoice[p.invoices.id] || 0) + (Number(p.amount_paid) || 0);
+}
+
 const tenantSummaries: TenantSummary[] = tenants.map((tenant) => {
 // Match by tenant id, not name - two tenants sharing a common name (not
 // rare in practice) would otherwise have their payments merged, making
@@ -239,16 +269,29 @@ const tenantSummaries: TenantSummary[] = tenants.map((tenant) => {
 const tenantPayments = currentPayments.filter((p) => p.invoices?.tenants?.id === tenant.id);
 const expected = Number(tenant.units?.base_rent) || 0;
 const paid = tenantPayments.reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
-const balance = Math.max(expected - paid, 0);
+
+// Any unpaid/partially-paid invoice from a period OTHER than the current
+// one - this is what used to silently vanish once the next month began,
+// since everything else on this page only ever looks at `period`.
+const priorInvoices = unpaidInvoices.filter((inv) => inv.tenant_id === tenant.id && inv.billing_period !== period);
+const priorDue = priorInvoices.reduce((sum, inv) => sum + (Number(inv.total_due) || 0), 0);
+const priorPaid = priorInvoices.reduce((sum, inv) => sum + (paidByInvoice[inv.id] || 0), 0);
+const priorBalance = Math.max(priorDue - priorPaid, 0);
+
+const totalDue = expected + priorDue;
+const totalPaid = paid + priorPaid;
+const balance = Math.max(totalDue - totalPaid, 0);
 let status = "Unpaid";
-if (expected > 0 && paid >= expected) status = "Paid";
-else if (paid > 0) status = "Partially Paid";
-return { tenant, expected, paid, balance, status };
+if (totalDue > 0 && balance === 0) status = "Paid";
+else if (totalPaid > 0) status = "Partially Paid";
+return { tenant, expected, paid, balance, status, priorBalance };
 });
 
 const rentExpected = tenantSummaries.reduce((sum, item) => sum + item.expected, 0);
 const rentCollected = tenantSummaries.reduce((sum, item) => sum + item.paid, 0);
-const outstanding = Math.max(rentExpected - rentCollected, 0);
+// True total owed across every unpaid period, not just this month - see
+// priorBalance above.
+const outstanding = tenantSummaries.reduce((sum, item) => sum + item.balance, 0);
 const paidTenants = tenantSummaries.filter((item) => item.status === "Paid").length;
 const unpaidTenants = tenantSummaries.filter((item) => item.status === "Unpaid").length;
 
@@ -321,7 +364,7 @@ return (
           </div>
         )}
         <div className="mt-6 flex gap-3">
-          <button onClick={recordPayment} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800">Save Payment</button>
+          <button onClick={recordPayment} disabled={savingPayment} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-60">{savingPayment ? "Saving..." : "Save Payment"}</button>
           <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
         </div>
       </div>
@@ -341,7 +384,7 @@ return (
       <div className="rounded-xl border bg-gradient-to-br from-red-500 to-red-600 p-6 shadow-sm text-white">
         <p className="text-sm text-red-100">Outstanding</p>
         <p className="mt-2 text-3xl font-bold">KSh {outstanding.toLocaleString()}</p>
-        <p className="mt-1 text-sm text-red-100">{unpaidTenants} unpaid</p>
+        <p className="mt-1 text-sm text-red-100">{unpaidTenants} unpaid · all unpaid periods</p>
       </div>
       <div className="rounded-xl border bg-white p-6 shadow-sm">
         <p className="text-sm text-slate-500">Payments Logged</p>
@@ -414,7 +457,12 @@ return (
                   <td className="whitespace-nowrap px-6 py-4">{period}</td>
                   <td className="whitespace-nowrap px-6 py-4">KSh {item.expected.toLocaleString()}</td>
                   <td className={"whitespace-nowrap px-6 py-4 font-medium " + (item.paid > 0 ? "text-green-700" : "text-slate-400")}>KSh {item.paid.toLocaleString()}</td>
-                  <td className="whitespace-nowrap px-6 py-4 font-medium">KSh {item.balance.toLocaleString()}</td>
+                  <td className="whitespace-nowrap px-6 py-4 font-medium">
+                    KSh {item.balance.toLocaleString()}
+                    {item.priorBalance > 0 && (
+                      <div className="mt-0.5 text-xs font-normal text-red-600">incl. KSh {item.priorBalance.toLocaleString()} from an earlier month</div>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + statusClasses(item.status)}>{item.status}</span></td>
                   <td className="whitespace-nowrap px-6 py-4">
                     {item.status !== "Paid" && (

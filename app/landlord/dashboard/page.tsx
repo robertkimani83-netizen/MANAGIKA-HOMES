@@ -12,7 +12,7 @@ id: string;
 status: string;
 urgency: string;
 };
-type UnpaidTenant = { name: string; unit: string; amount: number };
+type UnpaidTenant = { name: string; unit: string; amount: number; periods: number };
 
 export default function LandlordDashboard() {
 const router = useRouter();
@@ -62,21 +62,39 @@ setLoading(true);
       collected = (paymentsThisPeriod || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
     }
   }
-  // "What needs your attention today" - who specifically hasn't paid yet
-  // this period, not just the aggregate outstanding total.
+  // "What needs your attention today" - who specifically hasn't paid,
+  // across ANY billing period they owe on (not just this one). Without
+  // the neq("status","paid") query below staying period-less, a tenant
+  // who missed last month and hasn't caught up would quietly stop
+  // appearing here - and stop counting toward Outstanding below - the
+  // moment the new month started.
   let unpaid: UnpaidTenant[] = [];
+  let outstandingTotal = 0;
   const { data: unpaidInvoices } = await supabase
     .from("invoices")
-    .select("total_due, status, tenants!inner(full_name, landlord_id), units(unit_number)")
-    .eq("billing_period", period)
+    .select("id, total_due, status, billing_period, tenants!inner(full_name, landlord_id), units(unit_number)")
     .eq("tenants.landlord_id", landlordId)
     .neq("status", "paid");
-  if (unpaidInvoices) {
-    unpaid = (unpaidInvoices as any[]).map((inv) => ({
-      name: inv.tenants?.full_name || "Unknown tenant",
-      unit: inv.units?.unit_number || "—",
-      amount: Number(inv.total_due) || 0,
-    }));
+  if (unpaidInvoices && unpaidInvoices.length > 0) {
+    const invoiceIds = (unpaidInvoices as any[]).map((inv) => inv.id);
+    const { data: paymentsOnThese } = await supabase.from("payments").select("invoice_id, amount_paid").in("invoice_id", invoiceIds);
+    const paidByInvoice: Record<string, number> = {};
+    for (const p of paymentsOnThese || []) {
+      paidByInvoice[p.invoice_id] = (paidByInvoice[p.invoice_id] || 0) + (Number(p.amount_paid) || 0);
+    }
+    // Group by tenant so someone behind on more than one month gets one
+    // row with their total balance, not a repeated row per invoice.
+    const byTenant: Record<string, UnpaidTenant> = {};
+    for (const inv of unpaidInvoices as any[]) {
+      const balance = Math.max((Number(inv.total_due) || 0) - (paidByInvoice[inv.id] || 0), 0);
+      if (balance <= 0) continue;
+      const key = (inv.tenants?.full_name || "Unknown tenant") + "|" + (inv.units?.unit_number || "");
+      if (!byTenant[key]) byTenant[key] = { name: inv.tenants?.full_name || "Unknown tenant", unit: inv.units?.unit_number || "—", amount: 0, periods: 0 };
+      byTenant[key].amount += balance;
+      byTenant[key].periods += 1;
+      outstandingTotal += balance;
+    }
+    unpaid = Object.values(byTenant);
   }
   let openRequestsCount = 0;
   let urgentRequestsCount = 0;
@@ -93,7 +111,7 @@ setLoading(true);
   setPropertyCount(propertyIds.length);
   setUnitCount(landlordUnits.length);
   setTenantCount(tenantCountResult || 0);
-  setOutstanding(Math.max(rentExpected - collected, 0));
+  setOutstanding(outstandingTotal);
   setRentExpectedTotal(rentExpected);
   setCollectedTotal(collected);
   setOccupiedCount(occupiedUnits.length);
@@ -233,7 +251,7 @@ return (
             <div key={i} className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
               <div>
                 <p className="font-semibold text-amber-900">{t.name} — Unit {t.unit}</p>
-                <p className="text-sm text-amber-700">Hasn&apos;t paid rent this month</p>
+                <p className="text-sm text-amber-700">{t.periods > 1 ? `Owes rent for ${t.periods} months` : "Hasn't paid rent this month"}</p>
               </div>
               <p className="text-lg font-bold text-amber-900">{formatMoney(t.amount)}</p>
             </div>
