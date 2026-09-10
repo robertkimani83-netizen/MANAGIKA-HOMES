@@ -87,7 +87,33 @@ if (!invoice) {
   invoice = data;
 }
 if (!invoice) {
-  return NextResponse.json({ error: "No invoice found to pay." }, { status: 400 });
+  // No invoice exists yet for this period at all - most likely because
+  // this tenant was added after the once-a-month invoice-generation cron
+  // already ran on the 1st (the same gap fixed on the dashboard and AI
+  // assistant's rent totals). Create it now instead of blocking them from
+  // paying online until next month's cron catches up.
+  if (baseRent <= 0) {
+    return NextResponse.json({ error: "No rent amount is set for your unit - contact your landlord." }, { status: 400 });
+  }
+  const dueDate = new Date();
+  const { data: newInvoice, error: invError } = await supabaseAdmin
+    .from("invoices")
+    .insert({
+      invoice_number: "INV-" + Date.now() + "-" + tenant.id.slice(0, 6),
+      tenant_id: tenant.id,
+      unit_id: tenant.unit_id,
+      billing_period: period,
+      rent_amount: baseRent,
+      total_due: baseRent,
+      status: "unpaid",
+      due_date: dueDate.toISOString().slice(0, 10),
+    })
+    .select("id, total_due, tenant_id")
+    .single();
+  if (invError || !newInvoice) {
+    return NextResponse.json({ error: "Could not set up this month's invoice: " + (invError?.message || "unknown error") }, { status: 500 });
+  }
+  invoice = newInvoice;
 }
 
 const { data: existingPayments } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", invoice.id);
