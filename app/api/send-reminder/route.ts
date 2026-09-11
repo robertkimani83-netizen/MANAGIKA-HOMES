@@ -2,6 +2,13 @@
 import { createClient } from "@supabase/supabase-js";
 import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { sendWhatsappTemplate } from "@/lib/whatsapp";
+
+function currentPeriod() {
+const d = new Date();
+const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+return names[d.getMonth()] + " " + d.getFullYear();
+}
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -34,7 +41,11 @@ if (!tenantId || !message) {
   return NextResponse.json({ error: "Missing tenantId or message" }, { status: 400 });
 }
 
-const { data: tenant, error: tenantError } = await supabaseAdmin.from("tenants").select("id, landlord_id, phone_number").eq("id", tenantId).maybeSingle();
+const { data: tenant, error: tenantError } = await supabaseAdmin
+  .from("tenants")
+  .select("id, landlord_id, full_name, phone_number, units(unit_number)")
+  .eq("id", tenantId)
+  .maybeSingle();
 if (tenantError || !tenant || tenant.landlord_id !== userData.user.id) {
   return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 }
@@ -64,22 +75,57 @@ const result = await sms.send({
 const recipient = result?.SMSMessageData?.Recipients?.[0];
 const delivered = recipient?.status === "Success";
 
+// WhatsApp is sent in addition to SMS, not instead of it, and is attempted
+// regardless of whether the SMS above succeeded - matching the nightly cron
+// job's behaviour. A failure on either channel is reported back to the
+// landlord (so "Sent" claims are honest) but never blocks the other channel.
+let whatsapp: { ok: boolean; error?: string } = { ok: false, error: "not attempted" };
+try {
+  const { data: unpaidInvoices } = await supabaseAdmin
+    .from("invoices")
+    .select("id, total_due")
+    .eq("tenant_id", tenantId)
+    .in("status", ["unpaid", "partially_paid"]);
+
+  let balance = 0;
+  for (const inv of unpaidInvoices || []) {
+    const { data: pays } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", inv.id);
+    const paid = (pays || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
+    balance += Math.max(Number(inv.total_due) - paid, 0);
+  }
+
+  const unitRaw: any = (tenant as any).units;
+  const unitNumber = Array.isArray(unitRaw) ? unitRaw[0]?.unit_number : unitRaw?.unit_number;
+
+  const waResult = await sendWhatsappTemplate(tenant.phone_number, "rent_reminder", "en", [
+    tenant.full_name || "there",
+    balance.toLocaleString(),
+    currentPeriod(),
+    unitNumber || "-",
+  ]);
+  whatsapp = waResult.ok ? { ok: true } : { ok: false, error: waResult.error };
+} catch (waError: any) {
+  whatsapp = { ok: false, error: waError?.message || "WhatsApp request failed" };
+}
+
 if (!delivered) {
   const reason = recipient?.status || "Unknown error";
   return NextResponse.json(
     {
       success: false,
       error:
-        "The SMS provider did not deliver this message (reason: " +
+        "SMS was not delivered (reason: " +
         reason +
-        "). The recipient's number may be blocked or opted out of promotional SMS.",
+        "). The recipient's number may be blocked or opted out of promotional SMS." +
+        (whatsapp.ok ? " WhatsApp reminder was sent successfully." : " WhatsApp also failed: " + whatsapp.error),
       result,
+      whatsapp,
     },
     { status: 502 }
   );
 }
 
-return NextResponse.json({ success: true, result });
+return NextResponse.json({ success: true, result, whatsapp });
 
 } catch (error: any) {
 return NextResponse.json({ error: error.message || "Failed to send SMS" }, { status: 500 });
