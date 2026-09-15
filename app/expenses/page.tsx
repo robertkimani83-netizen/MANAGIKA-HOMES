@@ -43,13 +43,18 @@ export default function ExpensesPage() {
     async function init() {
       const { data } = await supabase.auth.getUser();
       if (!data.user) { router.push("/landlord/login"); return; }
-      setLandlordId(data.user.id);
+      const id = data.user.id;
+      setLandlordId(id);
 
-      const { data: propertyRows } = await supabase.from("properties").select("id, property_name").eq("landlord_id", data.user.id).order("property_name", { ascending: true });
+      // Properties, expenses, and the collected-this-month figure are all
+      // independent of each other - fired together instead of one after
+      // another so this page doesn't wait on three round trips in a row.
+      const [{ data: propertyRows }] = await Promise.all([
+        supabase.from("properties").select("id, property_name").eq("landlord_id", id).order("property_name", { ascending: true }),
+        loadExpenses(id),
+        loadCollected(id),
+      ]);
       setProperties(propertyRows || []);
-
-      await loadExpenses(data.user.id);
-      await loadCollected(data.user.id);
       setLoading(false);
     }
     init();

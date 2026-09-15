@@ -134,41 +134,50 @@ useEffect(() => {
 async function init() {
 const { data } = await supabase.auth.getUser();
 if (!data.user) { router.push("/landlord/login"); return; }
-setLandlordId(data.user.id);
+const landlordId = data.user.id;
+setLandlordId(landlordId);
 
-  // Scoped to this landlord's own tenants - without this filter, any
-  // logged-in landlord who knows or guesses another tenant's UUID could
-  // load that tenant's full profile, rent history, and maintenance
-  // history just by visiting /tenants/<uuid> directly.
-  const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, lease_start_date, lease_end_date, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).eq("landlord_id", data.user.id).single();
+  // All of these only depend on tenantId/landlordId (known up front), not
+  // on each other's results, so they're fired together instead of waited
+  // on one at a time - on a slow connection that turns ~8 sequential
+  // round trips into effectively one. loadInvoices/loadDocuments/
+  // loadWaterReadings still exist as their own functions (reused after
+  // saves elsewhere on this page), they're just called concurrently here.
+  const [
+    { data: tenantRow },
+    { data: vacantRows },
+    { data: maintenanceRows },
+    { data: complaintRows },
+    { data: inspectionRows },
+  ] = await Promise.all([
+    // Scoped to this landlord's own tenants - without this filter, any
+    // logged-in landlord who knows or guesses another tenant's UUID could
+    // load that tenant's full profile, rent history, and maintenance
+    // history just by visiting /tenants/<uuid> directly.
+    supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, lease_start_date, lease_end_date, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).eq("landlord_id", landlordId).single(),
+    supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", landlordId).order("unit_number", { ascending: true }),
+    supabase.from("maintenance_requests").select("id, title, description, urgency, status, created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }),
+    supabase.from("complaints").select("id, description, status, created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }),
+    supabase.from("unit_inspections").select("id, type, electricity_meter_reading, water_meter_reading, keys_issued, condition_notes, deposit_amount, deposit_refund_amount, photo_document_ids, created_at").eq("tenant_id", tenantId).eq("landlord_id", landlordId).order("created_at", { ascending: false }),
+    loadInvoices(),
+    loadDocuments(),
+    loadWaterReadings(),
+  ]);
+
   if (!tenantRow) { router.push("/tenants"); return; }
   setTenant(tenantRow);
   setSelectedUnitId(tenantRow.unit_id || "");
   setLeaseStart(tenantRow.lease_start_date || "");
   setLeaseEnd(tenantRow.lease_end_date || "");
 
-  const { data: vacantRows } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", data.user.id).order("unit_number", { ascending: true });
   let options = vacantRows || [];
-  if (tenantRow.unit_id) {
+  if (tenantRow.unit_id && !options.find((u: any) => u.id === tenantRow.unit_id)) {
     const { data: currentUnitRow } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties(property_name, landlord_id)").eq("id", tenantRow.unit_id).single();
-    if (currentUnitRow && !options.find((u: any) => u.id === currentUnitRow.id)) {
-      options = [currentUnitRow, ...options];
-    }
+    if (currentUnitRow) options = [currentUnitRow, ...options];
   }
   setUnitOptions(options);
-
-  await loadInvoices();
-
-  const { data: maintenanceRows } = await supabase.from("maintenance_requests").select("id, title, description, urgency, status, created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false });
   setMaintenance(maintenanceRows || []);
-
-  const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false });
   setComplaints(complaintRows || []);
-
-  await loadDocuments();
-  await loadWaterReadings();
-
-  const { data: inspectionRows } = await supabase.from("unit_inspections").select("id, type, electricity_meter_reading, water_meter_reading, keys_issued, condition_notes, deposit_amount, deposit_refund_amount, photo_document_ids, created_at").eq("tenant_id", tenantId).eq("landlord_id", data.user.id).order("created_at", { ascending: false });
   setInspections(inspectionRows || []);
 
   setLoading(false);

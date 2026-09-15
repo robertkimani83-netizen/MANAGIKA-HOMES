@@ -36,46 +36,31 @@ init();
 async function loadSummary(landlordId: string) {
 const period = currentPeriod();
 
-const { data: properties } = await supabase.from("properties").select("id, property_name").eq("landlord_id", landlordId);
+// Properties and tenants don't depend on each other - fired together.
+const [{ data: properties }, { data: tenants }] = await Promise.all([
+  supabase.from("properties").select("id, property_name").eq("landlord_id", landlordId),
+  supabase.from("tenants").select("id, full_name, unit_id, status").eq("landlord_id", landlordId),
+]);
 const propertyIds = (properties || []).map((p) => p.id);
-
-let units: { id: string; unit_number: string; base_rent: number; status: string }[] = [];
-if (propertyIds.length > 0) {
-  const { data: unitRows } = await supabase.from("units").select("id, unit_number, base_rent, status").in("property_id", propertyIds);
-  units = unitRows || [];
-}
-
-const { data: tenants } = await supabase.from("tenants").select("id, full_name, unit_id, status").eq("landlord_id", landlordId);
 const activeTenants = (tenants || []).filter((t) => t.status === "active");
 const tenantIds = activeTenants.map((t) => t.id);
 
-const unpaidLines: string[] = [];
-const paidLines: string[] = [];
-if (tenantIds.length > 0) {
+// Units (needs propertyIds) and the two invoice lookups (need tenantIds)
+// are independent of each other, so another parallel round instead of
+// three sequential ones.
+const [{ data: unitRows }, { data: currentInvoices }, { data: priorUnpaidInvoices }] = await Promise.all([
+  propertyIds.length > 0
+    ? supabase.from("units").select("id, unit_number, base_rent, status").in("property_id", propertyIds)
+    : Promise.resolve({ data: [] as { id: string; unit_number: string; base_rent: number; status: string }[] }),
   // Current-period invoices for EVERY status (not just "unpaid"), so a
   // tenant who already paid this month in full - whose invoice is
   // therefore marked "paid" - still gets matched to that payment below.
   // Filtering this lookup to unpaid invoices only would make an
   // already-paid tenant's current-month payment invisible and wrongly
   // report them as still owing it.
-  const { data: currentInvoices } = await supabase.from("invoices").select("id, tenant_id").in("tenant_id", tenantIds).eq("billing_period", period);
-  const invoiceTenant: Record<string, string> = {};
-  for (const inv of currentInvoices || []) invoiceTenant[inv.id] = inv.tenant_id;
-  const currentInvoiceIds = (currentInvoices || []).map((i) => i.id);
-  const currentPaidByTenant: Record<string, number> = {};
-  const currentLastPaidAtByTenant: Record<string, string> = {};
-  if (currentInvoiceIds.length > 0) {
-    const { data: paymentsThisPeriod } = await supabase.from("payments").select("invoice_id, amount_paid, paid_at").in("invoice_id", currentInvoiceIds);
-    for (const p of paymentsThisPeriod || []) {
-      const tId = invoiceTenant[p.invoice_id];
-      if (!tId) continue;
-      currentPaidByTenant[tId] = (currentPaidByTenant[tId] || 0) + (Number(p.amount_paid) || 0);
-      if (p.paid_at && (!currentLastPaidAtByTenant[tId] || p.paid_at > currentLastPaidAtByTenant[tId])) {
-        currentLastPaidAtByTenant[tId] = p.paid_at;
-      }
-    }
-  }
-
+  tenantIds.length > 0
+    ? supabase.from("invoices").select("id, tenant_id").in("tenant_id", tenantIds).eq("billing_period", period)
+    : Promise.resolve({ data: [] as { id: string; tenant_id: string }[] }),
   // Real unpaid/partially-paid invoices from EARLIER periods only - a
   // tenant only gets a current-period invoice row once a payment is
   // recorded for them, or once the once-a-month invoice-generation cron
@@ -84,14 +69,44 @@ if (tenantIds.length > 0) {
   // They're still evaluated via the unit-based `expected` fallback below
   // instead of being skipped outright, which is what the old version of
   // this code did whenever no matching invoice existed.
-  const { data: priorUnpaidInvoices } = await supabase.from("invoices").select("id, tenant_id, total_due, billing_period").in("tenant_id", tenantIds).neq("status", "paid").neq("billing_period", period);
+  tenantIds.length > 0
+    ? supabase.from("invoices").select("id, tenant_id, total_due, billing_period").in("tenant_id", tenantIds).neq("status", "paid").neq("billing_period", period)
+    : Promise.resolve({ data: [] as { id: string; tenant_id: string; total_due: number; billing_period: string }[] }),
+]);
+const units: { id: string; unit_number: string; base_rent: number; status: string }[] = unitRows || [];
+
+const unpaidLines: string[] = [];
+const paidLines: string[] = [];
+if (tenantIds.length > 0) {
+  const invoiceTenant: Record<string, string> = {};
+  for (const inv of currentInvoices || []) invoiceTenant[inv.id] = inv.tenant_id;
+  const currentInvoiceIds = (currentInvoices || []).map((i) => i.id);
+  const currentPaidByTenant: Record<string, number> = {};
+  const currentLastPaidAtByTenant: Record<string, string> = {};
+
   const priorInvoiceIds = (priorUnpaidInvoices || []).map((i) => i.id);
   const paidByInvoice: Record<string, number> = {};
-  if (priorInvoiceIds.length > 0) {
-    const { data: paymentsOnThese } = await supabase.from("payments").select("invoice_id, amount_paid").in("invoice_id", priorInvoiceIds);
-    for (const p of paymentsOnThese || []) {
-      paidByInvoice[p.invoice_id] = (paidByInvoice[p.invoice_id] || 0) + (Number(p.amount_paid) || 0);
+
+  // These two payments lookups depend on different invoice sets computed
+  // just above, but not on each other - one more parallel round.
+  const [{ data: paymentsThisPeriod }, { data: paymentsOnThese }] = await Promise.all([
+    currentInvoiceIds.length > 0
+      ? supabase.from("payments").select("invoice_id, amount_paid, paid_at").in("invoice_id", currentInvoiceIds)
+      : Promise.resolve({ data: [] as { invoice_id: string; amount_paid: number; paid_at: string | null }[] }),
+    priorInvoiceIds.length > 0
+      ? supabase.from("payments").select("invoice_id, amount_paid").in("invoice_id", priorInvoiceIds)
+      : Promise.resolve({ data: [] as { invoice_id: string; amount_paid: number }[] }),
+  ]);
+  for (const p of paymentsThisPeriod || []) {
+    const tId = invoiceTenant[p.invoice_id];
+    if (!tId) continue;
+    currentPaidByTenant[tId] = (currentPaidByTenant[tId] || 0) + (Number(p.amount_paid) || 0);
+    if (p.paid_at && (!currentLastPaidAtByTenant[tId] || p.paid_at > currentLastPaidAtByTenant[tId])) {
+      currentLastPaidAtByTenant[tId] = p.paid_at;
     }
+  }
+  for (const p of paymentsOnThese || []) {
+    paidByInvoice[p.invoice_id] = (paidByInvoice[p.invoice_id] || 0) + (Number(p.amount_paid) || 0);
   }
 
   for (const tenant of activeTenants) {
