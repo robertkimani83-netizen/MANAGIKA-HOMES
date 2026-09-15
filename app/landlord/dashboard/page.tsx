@@ -233,6 +233,10 @@ return (
             <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💳 Payment Settings</a>
             <a href="/team" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🧑‍🤝‍🧑 Team &amp; Caretakers</a>
             <a href="/screening" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🔎 Tenant Screening</a>
+            <a href="/leases" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📄 Leases</a>
+            <a href="/expenses" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💸 Expenses</a>
+            <a href="/vendors" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🧰 Vendors</a>
+            <a href="/maintenance-schedules" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🗓️ Preventive Maintenance</a>
             <a href="https://wa.me/97431502816?text=Hi%20Managika%20Homes%2C%20I%20need%20help%20with%3A%20" target="_blank" rel="noopener noreferrer" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💬 Chat on WhatsApp</a>
             <a href="/download-app" className="mh-hide-in-app rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📲 Download App</a>
           </nav>

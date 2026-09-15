@@ -6,13 +6,15 @@ import { supabase } from "@/lib/supabase";
 
 type Tenant = { id: string; full_name: string; unit_id: string | null; units: { unit_number: string; properties: { property_name: string; landlord_id: string } | null } | null };
 
-type Request = { id: string; category: string; title: string; description: string; urgency: string; status: string; technician_name: string | null; repair_cost: number; created_at: string; tenant_id: string | null; unit_id: string | null; tenants: { full_name: string } | null; units: { unit_number: string; properties: { property_name: string; landlord_id: string } | null } | null };
+type Request = { id: string; category: string; title: string; description: string; urgency: string; status: string; technician_name: string | null; repair_cost: number; created_at: string; tenant_id: string | null; unit_id: string | null; vendor_id: string | null; tenants: { full_name: string } | null; units: { unit_number: string; properties: { property_name: string; landlord_id: string } | null } | null };
+type Vendor = { id: string; name: string; specialty: string | null };
 
 export default function MaintenancePage() {
 const router = useRouter();
 const [landlordId, setLandlordId] = useState<string | null>(null);
 const [tenants, setTenants] = useState<Tenant[]>([]);
 const [requests, setRequests] = useState<Request[]>([]);
+const [vendors, setVendors] = useState<Vendor[]>([]);
 const [loading, setLoading] = useState(true);
 const [showForm, setShowForm] = useState(false);
 const [tenantId, setTenantId] = useState("");
@@ -38,15 +40,21 @@ if (!error && data) setTenants(data as unknown as Tenant[]);
 
 async function loadRequests(id: string) {
 setLoading(true);
-const { data, error } = await supabase.from("maintenance_requests").select("id, category, title, description, urgency, status, technician_name, repair_cost, created_at, tenant_id, unit_id, tenants(full_name), units!inner(unit_number, properties!inner(property_name, landlord_id))").eq("units.properties.landlord_id", id).order("created_at", { ascending: false });
+const { data, error } = await supabase.from("maintenance_requests").select("id, category, title, description, urgency, status, technician_name, repair_cost, created_at, tenant_id, unit_id, vendor_id, tenants(full_name), units!inner(unit_number, properties!inner(property_name, landlord_id))").eq("units.properties.landlord_id", id).order("created_at", { ascending: false });
 if (!error && data) setRequests(data as unknown as Request[]);
 setLoading(false);
+}
+
+async function loadVendors(id: string) {
+const { data } = await supabase.from("vendors").select("id, name, specialty").eq("landlord_id", id).order("name", { ascending: true });
+setVendors(data || []);
 }
 
 useEffect(() => {
 if (!landlordId) return;
 loadTenants(landlordId);
 loadRequests(landlordId);
+loadVendors(landlordId);
 }, [landlordId]);
 
 async function addRequest() {
@@ -87,6 +95,18 @@ const res = await authedFetch("/api/maintenance/" + id, {
 });
 const result = await res.json();
 if (!res.ok) { alert("Error updating status: " + (result.error || "unknown error")); return; }
+await loadRequests(landlordId);
+}
+
+async function assignVendor(id: string, vendorId: string) {
+if (!landlordId) return;
+const res = await authedFetch("/api/maintenance/" + id, {
+  method: "PATCH",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ vendorId: vendorId || null }),
+});
+const result = await res.json();
+if (!res.ok) { alert("Error assigning vendor: " + (result.error || "unknown error")); return; }
 await loadRequests(landlordId);
 }
 
@@ -243,14 +263,15 @@ return (
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Issue</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Urgency</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Status</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Vendor</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600"></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">Loading requests...</td></tr>
+              <tr><td colSpan={7} className="px-6 py-10 text-center text-slate-500">Loading requests...</td></tr>
             ) : requests.length === 0 ? (
-              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">No maintenance requests logged yet.</td></tr>
+              <tr><td colSpan={7} className="px-6 py-10 text-center text-slate-500">No maintenance requests logged yet.</td></tr>
             ) : (
               requests.map((r) => (
                 <tr key={r.id} className="border-t align-top">
@@ -272,6 +293,12 @@ return (
                       <StageTracker status={r.status} />
                       <span className="text-xs text-slate-400">Submitted {timeAgo(r.created_at, loadedAt)}</span>
                     </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <select value={r.vendor_id || ""} onChange={(e) => assignVendor(r.id, e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">
+                      <option value="">Unassigned</option>
+                      {vendors.map((v) => (<option key={v.id} value={v.id}>{v.name}</option>))}
+                    </select>
                   </td>
                   <td className="px-6 py-4"><button onClick={() => deleteRequest(r.id)} className="text-sm font-medium text-red-600 hover:underline">Remove</button></td>
                 </tr>

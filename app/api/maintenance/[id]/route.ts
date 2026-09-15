@@ -45,13 +45,37 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!owns) return NextResponse.json({ error: "Maintenance request not found" }, { status: 404 });
 
     const body = await request.json();
-    const status = body.status;
-    const allowedStatuses = ["submitted", "assigned", "in_progress", "completed"];
-    if (!allowedStatuses.includes(status)) {
-      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+    const update: Record<string, unknown> = {};
+
+    if (body.status !== undefined) {
+      const allowedStatuses = ["submitted", "assigned", "in_progress", "completed"];
+      if (!allowedStatuses.includes(body.status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+      }
+      update.status = body.status;
     }
 
-    const { error } = await supabaseAdmin.from("maintenance_requests").update({ status }).eq("id", id);
+    // vendorId is optional and separate from status, so the Maintenance
+    // page can assign/change a vendor without also having to resend the
+    // current status - a request's vendor and its status change on their
+    // own schedules, not always together.
+    if (body.vendorId !== undefined) {
+      if (body.vendorId) {
+        const { data: vendor } = await supabaseAdmin.from("vendors").select("id, name").eq("id", body.vendorId).eq("landlord_id", landlordId).maybeSingle();
+        if (!vendor) return NextResponse.json({ error: "Vendor not found" }, { status: 404 });
+        update.vendor_id = vendor.id;
+        update.technician_name = vendor.name;
+      } else {
+        update.vendor_id = null;
+        update.technician_name = null;
+      }
+    }
+
+    if (Object.keys(update).length === 0) {
+      return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    }
+
+    const { error } = await supabaseAdmin.from("maintenance_requests").update(update).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ success: true });

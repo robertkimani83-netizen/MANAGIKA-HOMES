@@ -30,6 +30,10 @@ const [waterRate, setWaterRate] = useState(0);
 const [meterReading, setMeterReading] = useState("");
 const [savingReading, setSavingReading] = useState(false);
 const [waterMessage, setWaterMessage] = useState<string | null>(null);
+const [leaseStart, setLeaseStart] = useState("");
+const [leaseEnd, setLeaseEnd] = useState("");
+const [savingLease, setSavingLease] = useState(false);
+const [leaseMessage, setLeaseMessage] = useState<string | null>(null);
 
 async function authedFetch(url: string, options: RequestInit = {}) {
   const { data: sessionData } = await supabase.auth.getSession();
@@ -136,10 +140,12 @@ setLandlordId(data.user.id);
   // logged-in landlord who knows or guesses another tenant's UUID could
   // load that tenant's full profile, rent history, and maintenance
   // history just by visiting /tenants/<uuid> directly.
-  const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).eq("landlord_id", data.user.id).single();
+  const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, joined_at, unit_id, lease_start_date, lease_end_date, units(unit_number, base_rent, properties(property_name))").eq("id", tenantId).eq("landlord_id", data.user.id).single();
   if (!tenantRow) { router.push("/tenants"); return; }
   setTenant(tenantRow);
   setSelectedUnitId(tenantRow.unit_id || "");
+  setLeaseStart(tenantRow.lease_start_date || "");
+  setLeaseEnd(tenantRow.lease_end_date || "");
 
   const { data: vacantRows } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", data.user.id).order("unit_number", { ascending: true });
   let options = vacantRows || [];
@@ -209,6 +215,29 @@ setUnitMessage("Saved.");
 setSavingUnit(false);
 }
 
+async function saveLease() {
+if (!landlordId) return;
+setSavingLease(true);
+setLeaseMessage(null);
+// Clearing lease_renewal_reminded_at whenever the dates are edited means
+// a landlord who just renewed (moved end_date forward) gets a fresh
+// reminder ahead of the NEW end date, instead of the cron thinking this
+// tenant was "already reminded" forever.
+const { error } = await supabase
+  .from("tenants")
+  .update({
+    lease_start_date: leaseStart || null,
+    lease_end_date: leaseEnd || null,
+    lease_renewal_reminded_at: null,
+  })
+  .eq("id", tenantId)
+  .eq("landlord_id", landlordId);
+setSavingLease(false);
+if (error) { setLeaseMessage("Error: " + error.message); return; }
+setTenant({ ...tenant, lease_start_date: leaseStart || null, lease_end_date: leaseEnd || null });
+setLeaseMessage("Saved.");
+}
+
 if (loading || !tenant) {
 return (<main className="min-h-screen bg-gray-100 flex items-center justify-center text-gray-500">Loading tenant details...</main>);
 }
@@ -248,6 +277,26 @@ return (
         </button>
       </div>
       {unitMessage && <p className="mt-3 text-sm text-gray-600">{unitMessage}</p>}
+    </div>
+
+    <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
+      <h3 className="text-xl font-semibold mb-4">Lease</h3>
+      <p className="text-sm text-gray-500 mb-4">Set this so Managika can remind you automatically as the lease end date approaches.</p>
+      <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+        <div className="flex-1">
+          <label className="mb-2 block text-sm font-medium text-gray-700">Lease start</label>
+          <input type="date" value={leaseStart} onChange={(e) => setLeaseStart(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+        </div>
+        <div className="flex-1">
+          <label className="mb-2 block text-sm font-medium text-gray-700">Lease end</label>
+          <input type="date" value={leaseEnd} onChange={(e) => setLeaseEnd(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+        </div>
+        <button onClick={saveLease} disabled={savingLease} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+          {savingLease ? "Saving..." : "Save"}
+        </button>
+      </div>
+      {leaseMessage && <p className="mt-3 text-sm text-gray-600">{leaseMessage}</p>}
+      {tenant.lease_end_date && <p className="mt-3 text-sm text-gray-500">Current lease runs {tenant.lease_start_date || "—"} to {tenant.lease_end_date}. We'll text you a heads-up about 30 days before it ends.</p>}
     </div>
 
     <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
