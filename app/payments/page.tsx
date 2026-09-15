@@ -63,6 +63,7 @@ const [resolvingClaimId, setResolvingClaimId] = useState<string | null>(null);
 const [authToken, setAuthToken] = useState("");
 const [unpaidInvoices, setUnpaidInvoices] = useState<UnpaidInvoice[]>([]);
 const [savingPayment, setSavingPayment] = useState(false);
+const [remindingAll, setRemindingAll] = useState(false);
 
 const period = currentPeriod();
 
@@ -230,9 +231,12 @@ setSavingPayment(false);
 
 }
 
-async function sendReminder(summary: TenantSummary) {
-if (!summary.tenant.phone_number) { alert("This tenant has no phone number on file."); return; }
-setSendingId(summary.tenant.id);
+// Shared by the per-row "Send Reminder" button and "Remind All Unpaid" -
+// does the actual send and hands back a plain result instead of alert()ing,
+// so the bulk sender can run through everyone quietly and report one
+// summary at the end instead of a popup per tenant.
+async function sendReminderTo(summary: TenantSummary): Promise<{ ok: boolean; error?: string }> {
+if (!summary.tenant.phone_number) return { ok: false, error: "no phone number on file" };
 try {
 const message = "Hi " + summary.tenant.full_name + ", this is a reminder from Managika Homes that your rent balance of KSh " + summary.balance.toLocaleString() + " for " + period + " is due. Please make payment at your earliest convenience.";
 const { data: sessionData } = await supabase.auth.getSession();
@@ -243,13 +247,53 @@ headers: { "Content-Type": "application/json", Authorization: "Bearer " + token 
 body: JSON.stringify({ tenantId: summary.tenant.id, message: message }),
 });
 const result = await res.json();
-if (!res.ok) { alert("Failed to send reminder: " + (result.error || "unknown error")); return; }
-alert("Reminder sent to " + summary.tenant.full_name + "!");
+if (!res.ok) return { ok: false, error: result.error || "unknown error" };
+return { ok: true };
 } catch (err: any) {
-alert("Error sending reminder: " + err.message);
-} finally {
-setSendingId(null);
+return { ok: false, error: err.message || "network error" };
 }
+}
+
+async function sendReminder(summary: TenantSummary) {
+setSendingId(summary.tenant.id);
+const result = await sendReminderTo(summary);
+setSendingId(null);
+if (!result.ok) { alert("Failed to send reminder: " + result.error); return; }
+alert("Reminder sent to " + summary.tenant.full_name + "!");
+}
+
+// One button to nudge every tenant who isn't fully paid up, instead of
+// clicking "Send Reminder" one row at a time. Runs sequentially (not
+// Promise.all) so it doesn't fire a burst of concurrent SMS/WhatsApp sends
+// at once - fine at the tenant counts this app deals with, and easier to
+// reason about if one send fails partway through.
+async function remindAllUnpaid() {
+const unpaidSummaries = tenantSummaries.filter((s) => s.status !== "Paid");
+if (unpaidSummaries.length === 0) { alert("Everyone is paid up for " + period + " - nothing to send."); return; }
+
+const withPhone = unpaidSummaries.filter((s) => s.tenant.phone_number);
+const withoutPhoneCount = unpaidSummaries.length - withPhone.length;
+if (withPhone.length === 0) { alert("None of the unpaid tenants have a phone number on file."); return; }
+
+const confirmMessage =
+  "Send a rent reminder to " + withPhone.length + " unpaid tenant" + (withPhone.length === 1 ? "" : "s") + " now?" +
+  (withoutPhoneCount > 0 ? " (" + withoutPhoneCount + " more have no phone number on file and will be skipped.)" : "");
+if (!confirm(confirmMessage)) return;
+
+setRemindingAll(true);
+let sent = 0;
+const failed: string[] = [];
+for (const summary of withPhone) {
+  const result = await sendReminderTo(summary);
+  if (result.ok) sent++;
+  else failed.push(summary.tenant.full_name + (result.error ? " (" + result.error + ")" : ""));
+}
+setRemindingAll(false);
+
+let summaryMessage = "Sent " + sent + " of " + withPhone.length + " reminder" + (withPhone.length === 1 ? "" : "s") + ".";
+if (withoutPhoneCount > 0) summaryMessage += " " + withoutPhoneCount + " skipped (no phone number).";
+if (failed.length > 0) summaryMessage += "\n\nDid not go through: " + failed.join(", ");
+alert(summaryMessage);
 }
 
 const currentPayments = payments.filter((p) => p.invoices?.billing_period === period);
@@ -294,6 +338,7 @@ const rentCollected = tenantSummaries.reduce((sum, item) => sum + item.paid, 0);
 const outstanding = tenantSummaries.reduce((sum, item) => sum + item.balance, 0);
 const paidTenants = tenantSummaries.filter((item) => item.status === "Paid").length;
 const unpaidTenants = tenantSummaries.filter((item) => item.status === "Unpaid").length;
+const notFullyPaidCount = tenantSummaries.filter((item) => item.status !== "Paid").length;
 
 function statusClasses(status: string) {
 if (status === "Paid") return "bg-green-100 text-green-700";
@@ -424,9 +469,16 @@ return (
     )}
 
     <div className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
-      <div className="border-b px-6 py-5">
-        <h3 className="text-xl font-semibold">Rent Status — {period}</h3>
-        <p className="mt-1 text-sm text-slate-500">Current rent position for each active tenant.</p>
+      <div className="border-b px-6 py-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-xl font-semibold">Rent Status — {period}</h3>
+          <p className="mt-1 text-sm text-slate-500">Current rent position for each active tenant.</p>
+        </div>
+        {notFullyPaidCount > 0 && (
+          <button onClick={remindAllUnpaid} disabled={remindingAll} className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50">
+            {remindingAll ? "Sending reminders..." : "🔔 Remind All Unpaid (" + notFullyPaidCount + ")"}
+          </button>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
