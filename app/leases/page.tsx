@@ -93,6 +93,7 @@ export default function LeasesPage() {
   const [endDate, setEndDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notifyingId, setNotifyingId] = useState<string | null>(null);
 
   useEffect(() => {
     async function init() {
@@ -142,13 +143,48 @@ export default function LeasesPage() {
     if (t?.unit_id) setUnitIdForSelectedTenant(t.unit_id);
   }
 
+  // Notifies the tenant a lease is waiting for them, over WhatsApp only (no
+  // SMS, per instruction). Needs a "lease_ready" template approved in
+  // Meta's WhatsApp Manager first - same one-time setup as rent_reminder
+  // before it, see the README that shipped with this feature - so this
+  // will fail until that's done. Never blocks the lease itself: the lease
+  // is already saved by the time this runs, so a notify failure here is
+  // reported but doesn't undo anything. `silent` skips the failure alert
+  // for the automatic send-on-create call, so it doesn't pop an error on
+  // every single lease sent while the template is still pending approval;
+  // the explicit "Resend" button always shows what happened.
+  async function notifyTenant(leaseId: string, silent = false) {
+    setNotifyingId(leaseId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return null;
+      const res = await fetch(`/api/leases/${leaseId}/notify`, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        if (!silent) alert("Could not notify the tenant on WhatsApp: " + (result.error || "unknown error"));
+        return result;
+      }
+      if (!silent) alert("Tenant notified on WhatsApp.");
+      return result;
+    } catch (err: any) {
+      if (!silent) alert("Error notifying tenant: " + err.message);
+      return null;
+    } finally {
+      setNotifyingId(null);
+    }
+  }
+
   async function createLease() {
     if (!landlordId) return;
     if (!tenantId) { setError("Select a tenant."); return; }
     if (!termsText.trim()) { setError("Lease terms can't be empty."); return; }
     setSaving(true);
     setError(null);
-    const { error: insertError } = await supabase.from("lease_agreements").insert({
+    const { data: inserted, error: insertError } = await supabase.from("lease_agreements").insert({
       landlord_id: landlordId,
       tenant_id: tenantId,
       unit_id: selectedUnitId || null,
@@ -157,11 +193,20 @@ export default function LeasesPage() {
       start_date: startDate || null,
       end_date: endDate || null,
       status: "sent",
-    });
+    }).select("id").single();
     setSaving(false);
     if (insertError) { setError(insertError.message); return; }
     setTenantId(""); setMonthlyRent(""); setStartDate(""); setEndDate(""); setTermsText(DEFAULT_TERMS);
     await loadLeases(landlordId);
+
+    if (inserted?.id) {
+      const result = await notifyTenant(inserted.id, true);
+      if (result?.success) {
+        alert("Lease sent, and the tenant has been notified on WhatsApp.");
+      } else {
+        alert("Lease sent. WhatsApp notification did not go through yet (" + (result?.error || "lease_ready template may still need approval") + ") - you can retry with \"Resend via WhatsApp\" below.");
+      }
+    }
   }
 
   if (loading) {
@@ -182,7 +227,7 @@ export default function LeasesPage() {
 
       <section className="max-w-5xl mx-auto px-6 py-8">
         <h2 className="text-3xl font-bold text-gray-900 mb-2">Leases</h2>
-        <p className="text-gray-500 mb-8">A detailed lease your tenant reviews and e-signs (drawn signature, IP address, device, and timestamp all recorded) in their portal. This is a strong, self-issued signing record, not a certified e-signature like DocuSign - keep your signed paper lease as the primary legal document if you have one, and use the &quot;Download PDF&quot; button below for a signed copy of this one.</p>
+        <p className="text-gray-500 mb-8">A detailed lease your tenant reviews and e-signs (drawn signature, IP address, device, and timestamp all recorded) in their portal. Sending one also notifies the tenant on WhatsApp. This is a strong, self-issued signing record, not a certified e-signature like DocuSign - keep your signed paper lease as the primary legal document if you have one, and use the &quot;Download PDF&quot; button below for a signed copy of this one.</p>
 
         <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
           <h3 className="text-xl font-semibold mb-4">Create a lease</h3>
@@ -236,7 +281,12 @@ export default function LeasesPage() {
                       <button onClick={() => downloadLeasePdf(l.id)} className="text-sm font-medium text-slate-700 underline hover:text-slate-900">Download PDF</button>
                     </div>
                   ) : (
-                    <span className="text-sm font-medium text-amber-700">Awaiting acceptance</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-medium text-amber-700">Awaiting acceptance</span>
+                      <button onClick={() => notifyTenant(l.id)} disabled={notifyingId === l.id} className="text-sm font-medium text-slate-700 underline hover:text-slate-900 disabled:opacity-50">
+                        {notifyingId === l.id ? "Notifying..." : "Resend via WhatsApp"}
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
