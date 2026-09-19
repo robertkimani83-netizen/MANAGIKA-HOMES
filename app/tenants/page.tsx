@@ -8,6 +8,9 @@ type Unit = { id: string; unit_number: string; base_rent: number; status: string
 
 type Tenant = { id: string; full_name: string; phone_number: string; email: string | null; status: string; unit_id: string | null; units: { unit_number: string; base_rent: number; properties: { property_name: string } | null } | null };
 
+// Pulls a phone number out of a messy pasted line regardless of where it
+// sits (start, end, with dashes/spaces) - matches 07xx / +254xx / 254xx
+// style Kenyan numbers, 9-13 digits once separators are stripped.
 function extractPhone(line: string): { phone: string | null; rest: string } {
   const match = line.match(/(\+?254|0)?[\s-]?\d{2,3}[\s-]?\d{3}[\s-]?\d{3,4}/);
   if (!match) return { phone: null, rest: line.trim() };
@@ -17,6 +20,9 @@ function extractPhone(line: string): { phone: string | null; rest: string } {
   return { phone: digitsOnly, rest };
 }
 
+// Splits a pasted line into a name, whatever's left after pulling the phone
+// number out - handles "Name, Phone", "Name<tab>Phone" (Excel/Sheets paste),
+// and "Name - Phone" all the same way.
 function parseBulkLine(line: string): { name: string; phone: string } | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
@@ -27,6 +33,8 @@ function parseBulkLine(line: string): { name: string; phone: string } | null {
   return { name, phone };
 }
 
+// Reads a File into a base64 string (without the data: URL prefix) for
+// sending to the Gemini vision API.
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -58,6 +66,7 @@ const [bulkResult, setBulkResult] = useState<{ added: number; skipped: string[] 
 const [scanning, setScanning] = useState(false);
 const [scanError, setScanError] = useState<string | null>(null);
 
+// --- Edit tenant ---
 const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
 const [editName, setEditName] = useState("");
 const [editPhone, setEditPhone] = useState("");
@@ -75,6 +84,9 @@ init();
 }, [router]);
 
 async function loadVacantUnits(id: string) {
+// Ordered by unit_sort_key (letter prefix + zero-padded number) instead of
+// unit_number, so the dropdown lists A1, A2, ... A20 in natural order
+// rather than A1, A10, A11, ... A2 in plain text order.
 const { data, error } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", id).order("unit_sort_key", { ascending: true });
 if (error) { console.error("Vacant units error:", error); setVacantUnits([]); return; }
 setVacantUnits(data as unknown as Unit[]);
@@ -82,13 +94,25 @@ setVacantUnits(data as unknown as Unit[]);
 
 async function loadTenants(id: string) {
 setLoading(true);
-// Sorted by the tenant's unit (unit_sort_key: letter prefix + zero-padded
-// number) rather than created_at, so the list always groups by building
+// Supabase's .order() can't sort the outer "tenants" rows by a column on
+// the related "units" row - that option only reorders items *inside* a
+// nested array, which isn't what we need here (each tenant has at most
+// one unit). So we sort client-side instead, by the unit's unit_sort_key
+// (letter prefix + zero-padded number) - this groups the list by building
 // and unit in natural order - SHOP B1, SHOP B2, ... B1, B2, ... - no
 // matter what order the tenant records happened to be added in.
-// Tenants with no unit assigned yet have no unit_sort_key and sort last.
-const { data, error } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, unit_id, units(unit_number, base_rent, property_id, properties(property_name, landlord_id))").eq("landlord_id", id).order("unit_sort_key", { foreignTable: "units", ascending: true, nullsFirst: false });
-if (error) { console.error("Tenants error:", error); setTenants([]); } else if (data) { setTenants(data as unknown as Tenant[]); }
+// Tenants with no unit assigned yet sort to the end.
+const { data, error } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, unit_id, units(unit_number, base_rent, property_id, unit_sort_key, properties(property_name, landlord_id))").eq("landlord_id", id);
+if (error) { console.error("Tenants error:", error); setTenants([]); setLoading(false); return; }
+const sorted = ((data as unknown as (Tenant & { units: (Tenant["units"] & { unit_sort_key?: string }) | null })[]) || []).slice().sort((a, b) => {
+  const keyA = a.units?.unit_sort_key;
+  const keyB = b.units?.unit_sort_key;
+  if (!keyA && !keyB) return 0;
+  if (!keyA) return 1;
+  if (!keyB) return -1;
+  return keyA.localeCompare(keyB);
+});
+setTenants(sorted);
 setLoading(false);
 }
 
@@ -111,6 +135,10 @@ if (tenantError) { alert("Error saving tenant: " + tenantError.message); return;
 if (unitId) {
 const { error: unitError } = await supabase.from("units").update({ status: "occupied" }).eq("id", unitId);
 if (unitError) console.error("Unit status error:", unitError);
+// The unit may have had a public "For Rent" listing - now that it has a
+// tenant, take it off the public listing page so nobody inquires about a
+// unit that's no longer available. Silently does nothing if no listing
+// exists for this unit.
 await supabase.from("unit_listings").update({ is_published: false }).eq("unit_id", unitId);
 }
 setFullName(""); setPhone(""); setEmail(""); setUnitId(""); setShowForm(false);
@@ -219,6 +247,7 @@ await loadVacantUnits(landlordId);
 await loadTenants(landlordId);
 }
 
+// Opens the edit modal pre-filled with this tenant's current details.
 function openEdit(tenant: Tenant) {
 setEditingTenant(tenant);
 setEditName(tenant.full_name);
