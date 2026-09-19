@@ -8,9 +8,6 @@ type Unit = { id: string; unit_number: string; base_rent: number; status: string
 
 type Tenant = { id: string; full_name: string; phone_number: string; email: string | null; status: string; unit_id: string | null; units: { unit_number: string; base_rent: number; properties: { property_name: string } | null } | null };
 
-// Pulls a phone number out of a messy pasted line regardless of where it
-// sits (start, end, with dashes/spaces) - matches 07xx / +254xx / 254xx
-// style Kenyan numbers, 9-13 digits once separators are stripped.
 function extractPhone(line: string): { phone: string | null; rest: string } {
   const match = line.match(/(\+?254|0)?[\s-]?\d{2,3}[\s-]?\d{3}[\s-]?\d{3,4}/);
   if (!match) return { phone: null, rest: line.trim() };
@@ -20,9 +17,6 @@ function extractPhone(line: string): { phone: string | null; rest: string } {
   return { phone: digitsOnly, rest };
 }
 
-// Splits a pasted line into a name, whatever's left after pulling the phone
-// number out - handles "Name, Phone", "Name<tab>Phone" (Excel/Sheets paste),
-// and "Name - Phone" all the same way.
 function parseBulkLine(line: string): { name: string; phone: string } | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
@@ -33,8 +27,6 @@ function parseBulkLine(line: string): { name: string; phone: string } | null {
   return { name, phone };
 }
 
-// Reads a File into a base64 string (without the data: URL prefix) for
-// sending to the Gemini vision API.
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -66,7 +58,6 @@ const [bulkResult, setBulkResult] = useState<{ added: number; skipped: string[] 
 const [scanning, setScanning] = useState(false);
 const [scanError, setScanError] = useState<string | null>(null);
 
-// --- Edit tenant ---
 const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
 const [editName, setEditName] = useState("");
 const [editPhone, setEditPhone] = useState("");
@@ -84,7 +75,7 @@ init();
 }, [router]);
 
 async function loadVacantUnits(id: string) {
-const { data, error } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", id).order("unit_number", { ascending: true });
+const { data, error } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", id).order("unit_sort_key", { ascending: true });
 if (error) { console.error("Vacant units error:", error); setVacantUnits([]); return; }
 setVacantUnits(data as unknown as Unit[]);
 }
@@ -115,10 +106,6 @@ if (tenantError) { alert("Error saving tenant: " + tenantError.message); return;
 if (unitId) {
 const { error: unitError } = await supabase.from("units").update({ status: "occupied" }).eq("id", unitId);
 if (unitError) console.error("Unit status error:", unitError);
-// The unit may have had a public "For Rent" listing - now that it has a
-// tenant, take it off the public listing page so nobody inquires about a
-// unit that's no longer available. Silently does nothing if no listing
-// exists for this unit.
 await supabase.from("unit_listings").update({ is_published: false }).eq("unit_id", unitId);
 }
 setFullName(""); setPhone(""); setEmail(""); setUnitId(""); setShowForm(false);
@@ -227,7 +214,6 @@ await loadVacantUnits(landlordId);
 await loadTenants(landlordId);
 }
 
-// Opens the edit modal pre-filled with this tenant's current details.
 function openEdit(tenant: Tenant) {
 setEditingTenant(tenant);
 setEditName(tenant.full_name);
@@ -250,8 +236,6 @@ const { error } = await supabase
 .from("tenants")
 .update({
 full_name: editName.trim(),
-// Phone is optional - clearing the field sets it back to "no phone on file"
-// rather than blocking the save, since not every tenant has one recorded yet.
 phone_number: editPhone.trim() || null,
 email: editEmail.trim() || null,
 })
