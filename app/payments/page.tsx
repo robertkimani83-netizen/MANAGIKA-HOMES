@@ -118,8 +118,22 @@ setResolvingClaimId(null);
 }
 
 async function loadTenants(id: string) {
-const { data, error } = await supabase.from("tenants").select("id, full_name, unit_id, phone_number, units(id, unit_number, base_rent, properties(property_name))").eq("landlord_id", id).eq("status", "active").order("full_name", { ascending: true });
-if (!error && data) setTenants(data as unknown as Tenant[]);
+// Supabase can't sort the outer "tenants" rows by a column on the related
+// "units" row, so we fetch normally (including unit_sort_key) and sort
+// client-side - this puts the Rent Status table in natural unit order
+// (A1, A2, ... SHOP B1, ... B1, ...) instead of alphabetical by tenant name.
+const { data, error } = await supabase.from("tenants").select("id, full_name, unit_id, phone_number, units(id, unit_number, base_rent, unit_sort_key, properties(property_name))").eq("landlord_id", id).eq("status", "active");
+if (!error && data) {
+  const sorted = (data as unknown as (Tenant & { units: (Tenant["units"] & { unit_sort_key?: string }) | null })[]).slice().sort((a, b) => {
+    const keyA = a.units?.unit_sort_key;
+    const keyB = b.units?.unit_sort_key;
+    if (!keyA && !keyB) return 0;
+    if (!keyA) return 1;
+    if (!keyB) return -1;
+    return keyA.localeCompare(keyB);
+  });
+  setTenants(sorted);
+}
 }
 
 async function loadUnpaidInvoices(id: string) {
