@@ -31,6 +31,15 @@ const [bulkWaterRate, setBulkWaterRate] = useState("");
 const [bulkSaving, setBulkSaving] = useState(false);
 const [bulkResult, setBulkResult] = useState<string | null>(null);
 
+// --- Edit unit ---
+const [editingUnit, setEditingUnit] = useState<Unit | null>(null);
+const [editUnitNumber, setEditUnitNumber] = useState("");
+const [editBaseRent, setEditBaseRent] = useState("");
+const [editGarbageFee, setEditGarbageFee] = useState("");
+const [editWaterRate, setEditWaterRate] = useState("");
+const [editSaving, setEditSaving] = useState(false);
+const [editError, setEditError] = useState("");
+
 useEffect(() => {
 async function init() {
 const { data } = await supabase.auth.getUser();
@@ -133,6 +142,36 @@ const token = sessionData.session?.access_token || "";
 const res = await fetch("/api/units/" + id, { method: "DELETE", headers: { Authorization: "Bearer " + token } });
 const result = await res.json();
 if (!res.ok) { alert("Error deleting unit: " + (result.error || "unknown error")); return; }
+loadUnits(landlordId);
+}
+
+function openEditUnit(unit: Unit) {
+setEditingUnit(unit);
+setEditUnitNumber(unit.unit_number);
+setEditBaseRent(String(unit.base_rent));
+setEditGarbageFee(String(unit.garbage_fee ?? 0));
+setEditWaterRate(String(unit.water_rate ?? 0));
+setEditError("");
+}
+
+function closeEditUnit() {
+setEditingUnit(null);
+setEditError("");
+}
+
+async function saveEditUnit() {
+if (!landlordId || !editingUnit) return;
+if (!editUnitNumber.trim()) { setEditError("Please enter the unit number."); return; }
+const rent = Number(editBaseRent);
+if (!Number.isFinite(rent) || rent <= 0) { setEditError("Please enter a valid monthly rent."); return; }
+const garbage = Number(editGarbageFee) || 0;
+const water = Number(editWaterRate) || 0;
+setEditSaving(true);
+setEditError("");
+const { error } = await supabase.from("units").update({ unit_number: editUnitNumber.trim(), base_rent: rent, garbage_fee: garbage, water_rate: water }).eq("id", editingUnit.id);
+setEditSaving(false);
+if (error) { setEditError(error.message); return; }
+closeEditUnit();
 loadUnits(landlordId);
 }
 
@@ -267,6 +306,39 @@ return (
       </div>
     )}
 
+    {editingUnit && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+        <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+          <h3 className="mb-5 text-xl font-bold text-slate-900">Edit Unit</h3>
+          <div className="grid gap-5 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Unit Number</label>
+              <input type="text" value={editUnitNumber} onChange={(e) => setEditUnitNumber(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Monthly Rent (KSh)</label>
+              <input type="number" min="0" value={editBaseRent} onChange={(e) => setEditBaseRent(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Garbage Fee (KSh)</label>
+              <input type="number" min="0" value={editGarbageFee} onChange={(e) => setEditGarbageFee(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Water Rate (KSh per unit)</label>
+              <input type="number" min="0" value={editWaterRate} onChange={(e) => setEditWaterRate(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+          </div>
+          {editError && <p className="mt-4 text-sm font-medium text-red-600">{editError}</p>}
+          <div className="mt-6 flex gap-3">
+            <button onClick={saveEditUnit} disabled={editSaving} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+              {editSaving ? "Saving..." : "Save Changes"}
+            </button>
+            <button onClick={closeEditUnit} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+          </div>
+        </div>
+      </div>
+    )}
+
     <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
       <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 border shadow-sm text-white">
         <p className="text-sm text-slate-300">Total Units</p>
@@ -317,6 +389,7 @@ return (
                     {unit.status === "vacant" && (
                       <a href={"/units/" + unit.id + "/listing"} className="text-sm font-medium text-amber-700 hover:underline">Listing</a>
                     )}
+                    <button onClick={() => openEditUnit(unit)} className="text-sm font-medium text-slate-700 hover:underline">Edit</button>
                     <button onClick={() => deleteUnit(unit.id)} className="text-sm font-medium text-red-600 hover:underline">Delete</button>
                   </td>
                 </tr>
