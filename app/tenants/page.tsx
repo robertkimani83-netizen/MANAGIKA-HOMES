@@ -66,6 +66,14 @@ const [bulkResult, setBulkResult] = useState<{ added: number; skipped: string[] 
 const [scanning, setScanning] = useState(false);
 const [scanError, setScanError] = useState<string | null>(null);
 
+// --- Edit tenant ---
+const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+const [editName, setEditName] = useState("");
+const [editPhone, setEditPhone] = useState("");
+const [editEmail, setEditEmail] = useState("");
+const [editSaving, setEditSaving] = useState(false);
+const [editError, setEditError] = useState<string | null>(null);
+
 useEffect(() => {
 async function init() {
 const { data: { user } } = await supabase.auth.getUser();
@@ -219,6 +227,42 @@ await loadVacantUnits(landlordId);
 await loadTenants(landlordId);
 }
 
+// Opens the edit modal pre-filled with this tenant's current details.
+function openEdit(tenant: Tenant) {
+setEditingTenant(tenant);
+setEditName(tenant.full_name);
+setEditPhone(tenant.phone_number || "");
+setEditEmail(tenant.email || "");
+setEditError(null);
+}
+
+function closeEdit() {
+setEditingTenant(null);
+setEditError(null);
+}
+
+async function saveEdit() {
+if (!landlordId || !editingTenant) return;
+if (!editName.trim()) { setEditError("Please enter the tenant's name."); return; }
+setEditSaving(true);
+setEditError(null);
+const { error } = await supabase
+.from("tenants")
+.update({
+full_name: editName.trim(),
+// Phone is optional - clearing the field sets it back to "no phone on file"
+// rather than blocking the save, since not every tenant has one recorded yet.
+phone_number: editPhone.trim() || null,
+email: editEmail.trim() || null,
+})
+.eq("id", editingTenant.id)
+.eq("landlord_id", landlordId);
+setEditSaving(false);
+if (error) { setEditError(error.message); return; }
+closeEdit();
+await loadTenants(landlordId);
+}
+
 const totalTenants = tenants.length;
 const activeTenants = tenants.filter((tenant) => tenant.status === "active").length;
 const totalRent = tenants.reduce((sum, tenant) => sum + (Number(tenant.units?.base_rent) || 0), 0);
@@ -334,6 +378,36 @@ return (
       </div>
     )}
 
+    {editingTenant && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+        <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+          <h3 className="mb-5 text-xl font-bold text-slate-900">Edit Tenant</h3>
+          <div className="grid gap-5">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Full Name</label>
+              <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Phone Number</label>
+              <input type="text" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="e.g. 0712345678" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              <p className="mt-1 text-xs text-slate-500">Leave blank if not known yet - the tenant just won't be able to log in to their portal until it's added.</p>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Email (optional)</label>
+              <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+          </div>
+          {editError && <p className="mt-4 text-sm font-medium text-red-600">{editError}</p>}
+          <div className="mt-6 flex gap-3">
+            <button onClick={saveEdit} disabled={editSaving} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+              {editSaving ? "Saving..." : "Save Changes"}
+            </button>
+            <button onClick={closeEdit} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+          </div>
+        </div>
+      </div>
+    )}
+
     <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
       <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 border shadow-sm text-white">
         <p className="text-sm text-slate-300">Total Tenants</p>
@@ -372,11 +446,16 @@ return (
               tenants.map((tenant) => (
                 <tr key={tenant.id} className="border-t">
                   <td className="px-6 py-4"><a href={"/tenants/" + tenant.id} className="font-medium text-amber-600 hover:underline">{tenant.full_name}</a></td>
-                  <td className="px-6 py-4">{tenant.phone_number}</td>
+                  <td className="px-6 py-4">
+                    {tenant.phone_number ? tenant.phone_number : <span className="italic text-amber-600">No phone number</span>}
+                  </td>
                   <td className="px-6 py-4">{tenant.units?.properties?.property_name || "—"}</td>
                   <td className="px-6 py-4">{tenant.units?.unit_number || "Unassigned"}</td>
                   <td className="px-6 py-4">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</td>
-                  <td className="px-6 py-4"><button onClick={() => deleteTenant(tenant)} className="text-sm font-medium text-red-600 hover:underline">Remove</button></td>
+                  <td className="px-6 py-4 space-x-3 whitespace-nowrap">
+                    <button onClick={() => openEdit(tenant)} className="text-sm font-medium text-slate-700 hover:underline">Edit</button>
+                    <button onClick={() => deleteTenant(tenant)} className="text-sm font-medium text-red-600 hover:underline">Remove</button>
+                  </td>
                 </tr>
               ))
             )}
