@@ -4,255 +4,144 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-type Unit = { id: string; unit_number: string; base_rent: number; status: string; property_id: string; properties: { property_name: string } | null };
+type Property = { id: string; property_name: string };
 
-type Tenant = { id: string; full_name: string; phone_number: string; email: string | null; status: string; unit_id: string | null; units: { unit_number: string; base_rent: number; properties: { property_name: string } | null } | null };
+type Unit = { id: string; unit_number: string; base_rent: number; garbage_fee: number; water_rate: number; status: string; property_id: string; properties: { property_name: string } | null };
 
-function extractPhone(line: string): { phone: string | null; rest: string } {
-  const match = line.match(/(\+?254|0)?[\s-]?\d{2,3}[\s-]?\d{3}[\s-]?\d{3,4}/);
-  if (!match) return { phone: null, rest: line.trim() };
-  const digitsOnly = match[0].replace(/[\s-]/g, "");
-  if (digitsOnly.replace(/^\+?254|^0/, "").length < 8) return { phone: null, rest: line.trim() };
-  const rest = (line.slice(0, match.index) + line.slice((match.index ?? 0) + match[0].length)).trim();
-  return { phone: digitsOnly, rest };
-}
-
-function parseBulkLine(line: string): { name: string; phone: string } | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  const { phone, rest } = extractPhone(trimmed);
-  if (!phone) return null;
-  const name = rest.replace(/^[,\-–\t]+|[,\-–\t]+$/g, "").trim();
-  if (!name) return null;
-  return { name, phone };
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const commaIndex = result.indexOf(",");
-      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-export default function TenantsPage() {
+export default function UnitsPage() {
 const router = useRouter();
 const [landlordId, setLandlordId] = useState<string | null>(null);
-const [tenants, setTenants] = useState<Tenant[]>([]);
-const [vacantUnits, setVacantUnits] = useState<Unit[]>([]);
+const [units, setUnits] = useState<Unit[]>([]);
+const [properties, setProperties] = useState<Property[]>([]);
 const [loading, setLoading] = useState(true);
 const [showForm, setShowForm] = useState(false);
-const [fullName, setFullName] = useState("");
-const [phone, setPhone] = useState("");
-const [email, setEmail] = useState("");
-const [unitId, setUnitId] = useState("");
+const [propertyId, setPropertyId] = useState("");
+const [unitNumber, setUnitNumber] = useState("");
+const [baseRent, setBaseRent] = useState("");
+const [garbageFee, setGarbageFee] = useState("");
+const [waterRate, setWaterRate] = useState("");
 const [showBulkForm, setShowBulkForm] = useState(false);
-const [bulkText, setBulkText] = useState("");
+const [bulkPropertyId, setBulkPropertyId] = useState("");
+const [bulkPrefix, setBulkPrefix] = useState("");
+const [bulkStart, setBulkStart] = useState("");
+const [bulkEnd, setBulkEnd] = useState("");
+const [bulkRent, setBulkRent] = useState("");
+const [bulkGarbage, setBulkGarbage] = useState("");
+const [bulkWaterRate, setBulkWaterRate] = useState("");
 const [bulkSaving, setBulkSaving] = useState(false);
-const [bulkResult, setBulkResult] = useState<{ added: number; skipped: string[] } | null>(null);
-const [scanning, setScanning] = useState(false);
-const [scanError, setScanError] = useState<string | null>(null);
-
-const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
-const [editName, setEditName] = useState("");
-const [editPhone, setEditPhone] = useState("");
-const [editEmail, setEditEmail] = useState("");
-const [editSaving, setEditSaving] = useState(false);
-const [editError, setEditError] = useState<string | null>(null);
+const [bulkResult, setBulkResult] = useState<string | null>(null);
 
 useEffect(() => {
 async function init() {
-const { data: { user } } = await supabase.auth.getUser();
-if (!user) { router.push("/landlord/login"); return; }
-setLandlordId(user.id);
+const { data } = await supabase.auth.getUser();
+if (!data.user) { router.push("/landlord/login"); return; }
+setLandlordId(data.user.id);
 }
 init();
-}, [router]);
+}, []);
 
-async function loadVacantUnits(id: string) {
-// Ordered by unit_sort_key (letter prefix + zero-padded number) instead of
-// unit_number, so the dropdown lists A1, A2, ... A20 in natural order
-// rather than A1, A10, A11, ... A2 in plain text order.
-const { data, error } = await supabase.from("units").select("id, unit_number, base_rent, status, property_id, properties!inner(property_name, landlord_id)").eq("status", "vacant").eq("properties.landlord_id", id).order("unit_sort_key", { ascending: true });
-if (error) { console.error("Vacant units error:", error); setVacantUnits([]); return; }
-setVacantUnits(data as unknown as Unit[]);
+async function loadProperties(id: string) {
+const { data } = await supabase.from("properties").select("id, property_name").eq("landlord_id", id).order("property_name", { ascending: true });
+if (data) {
+setProperties(data);
+if (data.length > 0) {
+  setPropertyId((prev) => prev || data[0].id);
+  setBulkPropertyId((prev) => prev || data[0].id);
+}
+}
 }
 
-async function loadTenants(id: string) {
+async function loadUnits(id: string) {
 setLoading(true);
-const { data, error } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, unit_id, units(unit_number, base_rent, property_id, properties(property_name, landlord_id))").eq("landlord_id", id).order("created_at", { ascending: false });
-if (error) { console.error("Tenants error:", error); setTenants([]); } else if (data) { setTenants(data as unknown as Tenant[]); }
+// Ordered by unit_sort_key (a generated column: letter prefix + zero-padded
+// number) instead of unit_number or created_at, so units come back in
+// natural order - A1, A2, ... A20 - rather than plain text order, which
+// would put A10 before A2, or newest-first order, which scattered them.
+const { data, error } = await supabase.from("units").select("id, unit_number, base_rent, garbage_fee, water_rate, status, property_id, properties!inner(property_name, landlord_id)").eq("properties.landlord_id", id).order("unit_sort_key", { ascending: true });
+if (!error && data) setUnits(data as unknown as Unit[]);
 setLoading(false);
 }
 
 useEffect(() => {
-if (!landlordId) return;
-loadVacantUnits(landlordId);
-loadTenants(landlordId);
+if (landlordId) {
+loadProperties(landlordId);
+loadUnits(landlordId);
+}
 }, [landlordId]);
 
-async function addTenant() {
+async function addUnit() {
 if (!landlordId) return;
-if (!fullName.trim()) { alert("Please enter the tenant's name."); return; }
-if (!phone.trim()) { alert("Please enter the tenant's phone number."); return; }
-if (unitId) {
-const selectedUnit = vacantUnits.find((unit) => unit.id === unitId);
-if (!selectedUnit) { alert("Invalid unit selected."); return; }
-}
-const { error: tenantError } = await supabase.from("tenants").insert({ landlord_id: landlordId, full_name: fullName.trim(), phone_number: phone.trim(), email: email.trim() || null, unit_id: unitId || null, status: "active", joined_at: new Date().toISOString() });
-if (tenantError) { alert("Error saving tenant: " + tenantError.message); return; }
-if (unitId) {
-const { error: unitError } = await supabase.from("units").update({ status: "occupied" }).eq("id", unitId);
-if (unitError) console.error("Unit status error:", unitError);
-await supabase.from("unit_listings").update({ is_published: false }).eq("unit_id", unitId);
-}
-setFullName(""); setPhone(""); setEmail(""); setUnitId(""); setShowForm(false);
-await loadVacantUnits(landlordId);
-await loadTenants(landlordId);
+if (!propertyId) { alert("Please add a property first, then select it here."); return; }
+if (!unitNumber.trim()) { alert("Please enter the unit number."); return; }
+const rent = Number(baseRent);
+if (!Number.isFinite(rent) || rent <= 0) { alert("Please enter a valid monthly rent."); return; }
+const garbage = Number(garbageFee) || 0;
+const water = Number(waterRate) || 0;
+const { error } = await supabase.from("units").insert({ property_id: propertyId, unit_number: unitNumber.trim(), base_rent: rent, garbage_fee: garbage, water_rate: water });
+if (error) { alert("Error saving unit: " + error.message); return; }
+setUnitNumber(""); setBaseRent(""); setGarbageFee(""); setWaterRate(""); setShowForm(false);
+loadUnits(landlordId);
 }
 
-async function addBulkTenants() {
+async function addBulkUnits() {
 if (!landlordId) return;
-const lines = bulkText.split("\n");
-const parsed: { name: string; phone: string }[] = [];
-const skipped: string[] = [];
-for (const line of lines) {
-if (!line.trim()) continue;
-const result = parseBulkLine(line);
-if (result) parsed.push(result);
-else skipped.push(line.trim());
-}
-if (parsed.length === 0) {
-setBulkResult({ added: 0, skipped });
-return;
-}
-setBulkSaving(true);
-const rows = parsed.map((p) => ({
-landlord_id: landlordId,
-full_name: p.name,
-phone_number: p.phone,
-email: null,
-unit_id: null,
-status: "active",
-joined_at: new Date().toISOString(),
-}));
-const { error } = await supabase.from("tenants").insert(rows);
-setBulkSaving(false);
-if (error) { alert("Error saving tenants: " + error.message); return; }
-setBulkResult({ added: parsed.length, skipped });
-setBulkText("");
-await loadTenants(landlordId);
-}
-
-async function handleScanFile(e: React.ChangeEvent<HTMLInputElement>) {
-const file = e.target.files && e.target.files[0];
-e.target.value = "";
-if (!file) return;
-
-if (file.size > 8 * 1024 * 1024) {
-  setScanError("That file is too large (over 8MB). Try taking the photo again with a bit less zoom, or crop it to just the tenant list.");
+if (!bulkPropertyId) { alert("Please add a property first, then select it here."); return; }
+const start = parseInt(bulkStart, 10);
+const end = parseInt(bulkEnd, 10);
+if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+  alert("Please enter a valid range, for example From 1 To 20.");
   return;
 }
-
-setScanning(true);
-setScanError(null);
-try {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
-  if (!accessToken) { setScanError("You've been signed out - please refresh the page and log in again."); setScanning(false); return; }
-
-  const imageBase64 = await fileToBase64(file);
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000);
-  let res;
-  try {
-    res = await fetch("/api/tenants/scan-list", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
-      body: JSON.stringify({ imageBase64, mimeType: file.type || "image/jpeg" }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-  const data = await res.json();
-  if (!res.ok || data.error) {
-    setScanError(data.error || "Could not read that file. Try a clearer photo, or type the list in manually below.");
-    setScanning(false);
-    return;
-  }
-  if (!data.text) {
-    setScanError("Couldn't find any names or numbers in that image. Try a clearer, well-lit photo of the page.");
-    setScanning(false);
-    return;
-  }
-  setBulkText((prev) => (prev.trim() ? prev.trim() + "\n" + data.text : data.text));
-} catch (err: any) {
-  if (err.name === "AbortError") {
-    setScanError("That took too long to read. Try again, or use a smaller/clearer photo.");
-  } else {
-    setScanError(err.message || "Something went wrong reading that file.");
-  }
-} finally {
-  setScanning(false);
+const count = end - start + 1;
+if (count > 200) {
+  alert("That's " + count + " units at once - please create up to 200 at a time.");
+  return;
 }
+const rent = Number(bulkRent);
+if (!Number.isFinite(rent) || rent <= 0) { alert("Please enter a valid monthly rent."); return; }
+const garbage = Number(bulkGarbage) || 0;
+const water = Number(bulkWaterRate) || 0;
+const prefix = bulkPrefix.trim();
+
+setBulkSaving(true);
+setBulkResult(null);
+const rows = [];
+for (let n = start; n <= end; n++) {
+  rows.push({ property_id: bulkPropertyId, unit_number: prefix + n, base_rent: rent, garbage_fee: garbage, water_rate: water });
+}
+const { error, data } = await supabase.from("units").insert(rows).select("id");
+setBulkSaving(false);
+if (error) {
+  setBulkResult("Error: " + error.message + " (if some of these unit numbers already exist, adjust the range and try again)");
+  return;
+}
+setBulkResult("Created " + (data ? data.length : rows.length) + " units: " + prefix + start + " to " + prefix + end + ".");
+setBulkPrefix(""); setBulkStart(""); setBulkEnd(""); setBulkRent(""); setBulkGarbage(""); setBulkWaterRate("");
+loadUnits(landlordId);
 }
 
-async function deleteTenant(tenant: Tenant) {
+async function deleteUnit(id: string) {
 if (!landlordId) return;
-const confirmed = window.confirm("Are you sure you want to remove this tenant?");
+const confirmed = window.confirm("Are you sure you want to delete this unit?");
 if (!confirmed) return;
-const { error } = await supabase.from("tenants").delete().eq("id", tenant.id).eq("landlord_id", landlordId);
-if (error) { alert("Error removing tenant: " + error.message); return; }
-if (tenant.unit_id) {
-const { error: unitError } = await supabase.from("units").update({ status: "vacant" }).eq("id", tenant.unit_id);
-if (unitError) console.error("Unit status error:", unitError);
-}
-await loadVacantUnits(landlordId);
-await loadTenants(landlordId);
-}
-
-function openEdit(tenant: Tenant) {
-setEditingTenant(tenant);
-setEditName(tenant.full_name);
-setEditPhone(tenant.phone_number || "");
-setEditEmail(tenant.email || "");
-setEditError(null);
+// Goes through /api/units/[id] rather than a direct client-side delete,
+// since units have no landlord_id column of their own - only a
+// server-side ownership check (via property_id -> properties.landlord_id)
+// can actually stop one landlord from deleting another's unit.
+const { data: sessionData } = await supabase.auth.getSession();
+const token = sessionData.session?.access_token || "";
+const res = await fetch("/api/units/" + id, { method: "DELETE", headers: { Authorization: "Bearer " + token } });
+const result = await res.json();
+if (!res.ok) { alert("Error deleting unit: " + (result.error || "unknown error")); return; }
+loadUnits(landlordId);
 }
 
-function closeEdit() {
-setEditingTenant(null);
-setEditError(null);
-}
+const totalUnits = units.length;
+const occupied = units.filter((u) => u.status === "occupied").length;
+const vacant = units.filter((u) => u.status === "vacant").length;
+const totalRent = units.reduce((sum, u) => sum + (Number(u.base_rent) || 0), 0);
 
-async function saveEdit() {
-if (!landlordId || !editingTenant) return;
-if (!editName.trim()) { setEditError("Please enter the tenant's name."); return; }
-setEditSaving(true);
-setEditError(null);
-const { error } = await supabase
-.from("tenants")
-.update({
-full_name: editName.trim(),
-phone_number: editPhone.trim() || null,
-email: editEmail.trim() || null,
-})
-.eq("id", editingTenant.id)
-.eq("landlord_id", landlordId);
-setEditSaving(false);
-if (error) { setEditError(error.message); return; }
-closeEdit();
-await loadTenants(landlordId);
-}
-
-const totalTenants = tenants.length;
-const activeTenants = tenants.filter((tenant) => tenant.status === "active").length;
-const totalRent = tenants.reduce((sum, tenant) => sum + (Number(tenant.units?.base_rent) || 0), 0);
+const statusPill = (status: string) => status === "occupied" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700";
 
 return (
 <main className="min-h-screen city-skyline-page">
@@ -270,139 +159,126 @@ return (
   <section className="max-w-7xl mx-auto px-6 py-8">
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
       <div className="flex items-center gap-4">
-        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 text-3xl">👥</span>
+        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 text-3xl">🚪</span>
         <div>
-          <h2 className="text-3xl font-bold text-slate-900">Tenants</h2>
-          <p className="text-slate-500 mt-1">Manage tenants, assignments and rental information.</p>
+          <h2 className="text-3xl font-bold text-slate-900">Units</h2>
+          <p className="text-slate-500 mt-1">Manage rental units, tenants and occupancy.</p>
         </div>
       </div>
       <div className="flex gap-3">
-        <button onClick={() => setShowBulkForm(true)} className="px-5 py-3 rounded-lg border-2 border-slate-900 bg-white text-slate-900 font-medium hover:-translate-y-0.5 hover:bg-slate-50 transition">📋 Paste a List</button>
-        <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Tenant</button>
+        <button onClick={() => setShowBulkForm(true)} className="px-5 py-3 rounded-lg border-2 border-slate-900 bg-white text-slate-900 font-medium hover:-translate-y-0.5 hover:bg-slate-50 transition">🔢 Bulk Create Units</button>
+        <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Unit</button>
       </div>
     </div>
 
     {showBulkForm && (
       <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
-        <h3 className="mb-2 text-xl font-bold text-slate-900">Add Many Tenants at Once</h3>
-        <p className="mb-4 text-sm text-slate-500">
-          Skip typing them one by one - paste a list below, or upload a photo of a handwritten or printed notebook page and let the app read it for you.
-        </p>
-
-        <div className="mb-5 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center">
-          <label className="cursor-pointer">
-            <span className="inline-block rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800">
-              {scanning ? "Reading document..." : "📷 Upload a Photo or PDF"}
-            </span>
-            <input type="file" accept="image/*,application/pdf" onChange={handleScanFile} disabled={scanning} className="hidden" />
-          </label>
-          <p className="mt-3 text-xs text-slate-500">A clear, well-lit photo of the page works best. Names and numbers found will be added to the box below for you to check.</p>
-          {scanError && <p className="mt-3 text-sm font-medium text-red-600">{scanError}</p>}
-        </div>
-
-        <p className="mb-2 text-sm font-medium text-slate-700">Or type / paste directly:</p>
-        <textarea
-          value={bulkText}
-          onChange={(e) => setBulkText(e.target.value)}
-          rows={8}
-          placeholder={"John Kamau, 0712345678\nMary Wanjiru, 0798765432\nPeter Otieno - 0722334455"}
-          className="w-full rounded-lg border border-slate-300 px-4 py-3 font-mono text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-        />
-        <p className="mt-2 text-xs text-slate-500">Works with "Name, 0712345678" per line, a list copied from Excel/Sheets, or names and numbers copied from your phone. You can assign units to each tenant afterwards from their profile.</p>
-        {bulkResult && (
-          <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm">
-            <p className="font-semibold text-slate-800">Added {bulkResult.added} tenant{bulkResult.added === 1 ? "" : "s"}.</p>
-            {bulkResult.skipped.length > 0 && (
-              <div className="mt-2">
-                <p className="font-medium text-red-600">Couldn't read {bulkResult.skipped.length} line{bulkResult.skipped.length === 1 ? "" : "s"} (no phone number found):</p>
-                <ul className="mt-1 list-disc pl-5 text-slate-600">
-                  {bulkResult.skipped.map((line, i) => (<li key={i}>{line}</li>))}
-                </ul>
+        <h3 className="mb-2 text-xl font-bold text-slate-900">Bulk Create Units</h3>
+        <p className="mb-4 text-sm text-slate-500">Create a whole range of units at once - for example A1 through A20 - instead of adding them one by one. All units in the range get the same rent.</p>
+        {properties.length === 0 ? (
+          <p className="text-slate-500">Add a property first under the Properties page before adding units.</p>
+        ) : (
+          <>
+            <div className="grid gap-5 md:grid-cols-5">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Property</label>
+                <select value={bulkPropertyId} onChange={(e) => setBulkPropertyId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
+                  {properties.map((p) => (<option key={p.id} value={p.id}>{p.property_name}</option>))}
+                </select>
               </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Prefix</label>
+                <input type="text" value={bulkPrefix} onChange={(e) => setBulkPrefix(e.target.value)} placeholder="e.g. A" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">From #</label>
+                <input type="number" min="0" value={bulkStart} onChange={(e) => setBulkStart(e.target.value)} placeholder="1" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">To #</label>
+                <input type="number" min="0" value={bulkEnd} onChange={(e) => setBulkEnd(e.target.value)} placeholder="20" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Monthly Rent (KSh)</label>
+                <input type="number" min="0" value={bulkRent} onChange={(e) => setBulkRent(e.target.value)} placeholder="e.g. 15000" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+            </div>
+            <div className="mt-5 grid gap-5 max-w-xl md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Garbage Fee (KSh, optional)</label>
+                <input type="number" min="0" value={bulkGarbage} onChange={(e) => setBulkGarbage(e.target.value)} placeholder="e.g. 200" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Water Rate (KSh per unit, optional)</label>
+                <input type="number" min="0" value={bulkWaterRate} onChange={(e) => setBulkWaterRate(e.target.value)} placeholder="e.g. 150" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+                <p className="mt-1 text-xs text-slate-400">Charged per unit of consumption on the tenant's meter, once you start recording readings.</p>
+              </div>
+            </div>
+            {bulkPrefix.trim() !== "" && bulkStart !== "" && bulkEnd !== "" && Number(bulkEnd) >= Number(bulkStart) && (
+              <p className="mt-4 text-sm text-slate-500">Will create {Number(bulkEnd) - Number(bulkStart) + 1} units: {bulkPrefix}{bulkStart} to {bulkPrefix}{bulkEnd}</p>
             )}
-          </div>
+            {bulkResult && <p className="mt-3 text-sm font-medium text-slate-700">{bulkResult}</p>}
+            <div className="mt-6 flex gap-3">
+              <button onClick={addBulkUnits} disabled={bulkSaving} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+                {bulkSaving ? "Creating..." : "Create Units"}
+              </button>
+              <button onClick={() => { setShowBulkForm(false); setBulkResult(null); }} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Close</button>
+            </div>
+          </>
         )}
-        <div className="mt-6 flex gap-3">
-          <button onClick={addBulkTenants} disabled={bulkSaving || !bulkText.trim()} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
-            {bulkSaving ? "Adding..." : "Add All"}
-          </button>
-          <button onClick={() => { setShowBulkForm(false); setBulkResult(null); setScanError(null); }} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Close</button>
-        </div>
       </div>
     )}
 
     {showForm && (
       <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
-        <h3 className="mb-5 text-xl font-bold text-slate-900">Add New Tenant</h3>
-        <div className="grid gap-5 md:grid-cols-2">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Full Name</label>
-            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. John Kamau" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+        <h3 className="mb-5 text-xl font-bold text-slate-900">Add New Unit</h3>
+        {properties.length === 0 ? (
+          <p className="text-slate-500">Add a property first under the Properties page before adding units.</p>
+        ) : (
+          <div className="grid gap-5 md:grid-cols-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Property</label>
+              <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
+                {properties.map((p) => (<option key={p.id} value={p.id}>{p.property_name}</option>))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Unit Number</label>
+              <input type="text" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="e.g. A12" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Monthly Rent (KSh)</label>
+              <input type="number" min="0" value={baseRent} onChange={(e) => setBaseRent(e.target.value)} placeholder="e.g. 15000" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Garbage Fee (KSh)</label>
+              <input type="number" min="0" value={garbageFee} onChange={(e) => setGarbageFee(e.target.value)} placeholder="e.g. 200" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Water Rate (KSh per unit)</label>
+              <input type="number" min="0" value={waterRate} onChange={(e) => setWaterRate(e.target.value)} placeholder="e.g. 150" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
           </div>
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Phone Number</label>
-            <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712345678" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
-          </div>
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Email (optional)</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. john@email.com" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
-          </div>
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Assign to Unit</label>
-            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
-              <option value="">No unit yet</option>
-              {vacantUnits.map((unit) => (
-                <option key={unit.id} value={unit.id}>{unit.properties?.property_name} - {unit.unit_number} (KSh {Number(unit.base_rent).toLocaleString()})</option>
-              ))}
-            </select>
-            {vacantUnits.length === 0 && (<p className="mt-2 text-sm text-slate-500">No vacant units available. Add units first, or leave unassigned.</p>)}
-          </div>
-        </div>
+        )}
         <div className="mt-6 flex gap-3">
-          <button onClick={addTenant} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800">Save Tenant</button>
+          <button onClick={addUnit} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800">Save Unit</button>
           <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
         </div>
       </div>
     )}
 
-    {editingTenant && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-        <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-          <h3 className="mb-5 text-xl font-bold text-slate-900">Edit Tenant</h3>
-          <div className="grid gap-5">
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Full Name</label>
-              <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Phone Number</label>
-              <input type="text" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="e.g. 0712345678" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
-              <p className="mt-1 text-xs text-slate-500">Leave blank if not known yet - the tenant just won't be able to log in to their portal until it's added.</p>
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Email (optional)</label>
-              <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
-            </div>
-          </div>
-          {editError && <p className="mt-4 text-sm font-medium text-red-600">{editError}</p>}
-          <div className="mt-6 flex gap-3">
-            <button onClick={saveEdit} disabled={editSaving} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
-              {editSaving ? "Saving..." : "Save Changes"}
-            </button>
-            <button onClick={closeEdit} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-          </div>
-        </div>
-      </div>
-    )}
-
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
       <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 border shadow-sm text-white">
-        <p className="text-sm text-slate-300">Total Tenants</p>
-        <p className="text-3xl font-bold mt-2">{totalTenants}</p>
+        <p className="text-sm text-slate-300">Total Units</p>
+        <p className="text-3xl font-bold mt-2">{totalUnits}</p>
       </div>
       <div className="bg-white rounded-xl p-6 border shadow-sm">
-        <p className="text-sm text-slate-500">Active Tenants</p>
-        <p className="text-3xl font-bold mt-2">{activeTenants}</p>
+        <p className="text-sm text-slate-500">Occupied</p>
+        <p className="text-3xl font-bold mt-2 text-green-700">{occupied}</p>
+      </div>
+      <div className="bg-white rounded-xl p-6 border shadow-sm">
+        <p className="text-sm text-slate-500">Vacant</p>
+        <p className="text-3xl font-bold mt-2 text-amber-600">{vacant}</p>
       </div>
       <div className="bg-white rounded-xl p-6 border shadow-sm">
         <p className="text-sm text-slate-500">Total Monthly Rent</p>
@@ -411,37 +287,37 @@ return (
     </div>
 
     <div className="mt-8 bg-white rounded-xl border shadow-sm overflow-hidden">
-      <div className="px-6 py-5 border-b"><h3 className="text-xl font-semibold">Tenant Information</h3></div>
+      <div className="px-6 py-5 border-b"><h3 className="text-xl font-semibold">Unit Information</h3></div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-slate-50">
             <tr>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Tenant</th>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Phone</th>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Property</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Unit</th>
-              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Rent</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Property</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Monthly Rent</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Water Rate</th>
+              <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Status</th>
               <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600"></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">Loading tenants...</td></tr>
-            ) : tenants.length === 0 ? (
-              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">No tenants have been added yet.</td></tr>
+              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">Loading units...</td></tr>
+            ) : units.length === 0 ? (
+              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">No units have been added yet.</td></tr>
             ) : (
-              tenants.map((tenant) => (
-                <tr key={tenant.id} className="border-t">
-                  <td className="px-6 py-4"><a href={"/tenants/" + tenant.id} className="font-medium text-amber-600 hover:underline">{tenant.full_name}</a></td>
-                  <td className="px-6 py-4">
-                    {tenant.phone_number ? tenant.phone_number : <span className="italic text-amber-600">No phone number</span>}
-                  </td>
-                  <td className="px-6 py-4">{tenant.units?.properties?.property_name || "—"}</td>
-                  <td className="px-6 py-4">{tenant.units?.unit_number || "Unassigned"}</td>
-                  <td className="px-6 py-4">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</td>
-                  <td className="px-6 py-4 space-x-3 whitespace-nowrap">
-                    <button onClick={() => openEdit(tenant)} className="text-sm font-medium text-slate-700 hover:underline">Edit</button>
-                    <button onClick={() => deleteTenant(tenant)} className="text-sm font-medium text-red-600 hover:underline">Remove</button>
+              units.map((unit) => (
+                <tr key={unit.id} className="border-t">
+                  <td className="px-6 py-4">{unit.unit_number}</td>
+                  <td className="px-6 py-4">{unit.properties?.property_name || "—"}</td>
+                  <td className="px-6 py-4">KSh {Number(unit.base_rent).toLocaleString()}</td>
+                  <td className="px-6 py-4">{Number(unit.water_rate) > 0 ? "KSh " + Number(unit.water_rate).toLocaleString() + "/unit" : "—"}</td>
+                  <td className="px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold capitalize " + statusPill(unit.status)}>{unit.status}</span></td>
+                  <td className="px-6 py-4 space-x-3">
+                    {unit.status === "vacant" && (
+                      <a href={"/units/" + unit.id + "/listing"} className="text-sm font-medium text-amber-700 hover:underline">Listing</a>
+                    )}
+                    <button onClick={() => deleteUnit(unit.id)} className="text-sm font-medium text-red-600 hover:underline">Delete</button>
                   </td>
                 </tr>
               ))
