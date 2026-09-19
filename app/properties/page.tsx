@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -14,6 +14,13 @@ const [loading, setLoading] = useState(true);
 const [showForm, setShowForm] = useState(false);
 const [name, setName] = useState("");
 const [location, setLocation] = useState("");
+
+// --- Edit property ---
+const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+const [editName, setEditName] = useState("");
+const [editLocation, setEditLocation] = useState("");
+const [editSaving, setEditSaving] = useState(false);
+const [editError, setEditError] = useState("");
 
 useEffect(() => {
 async function init() {
@@ -68,6 +75,31 @@ if (!confirmed) return;
 // property even if a policy is ever misconfigured.
 const { error } = await supabase.from("properties").delete().eq("id", id).eq("landlord_id", landlordId);
 if (error) { alert("Error deleting property: " + error.message); return; }
+loadProperties(landlordId);
+}
+
+function openEditProperty(property: Property) {
+setEditingProperty(property);
+setEditName(property.property_name);
+setEditLocation(property.location);
+setEditError("");
+}
+
+function closeEditProperty() {
+setEditingProperty(null);
+setEditError("");
+}
+
+async function saveEditProperty() {
+if (!landlordId || !editingProperty) return;
+if (!editName.trim()) { setEditError("Please enter the property name."); return; }
+if (!editLocation.trim()) { setEditError("Please enter the location."); return; }
+setEditSaving(true);
+setEditError("");
+const { error } = await supabase.from("properties").update({ property_name: editName.trim(), location: editLocation.trim() }).eq("id", editingProperty.id).eq("landlord_id", landlordId);
+setEditSaving(false);
+if (error) { setEditError(error.message); return; }
+closeEditProperty();
 loadProperties(landlordId);
 }
 
@@ -134,7 +166,10 @@ return (
             <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-100 to-orange-100 text-2xl">🏢</div>
             <h3 className="text-xl font-bold text-slate-900">{property.property_name}</h3>
             <p className="mt-2 text-slate-500">📍 {property.location}</p>
-            <button onClick={() => deleteProperty(property.id)} className="mt-5 rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Delete</button>
+            <div className="mt-5 flex gap-2">
+              <button onClick={() => openEditProperty(property)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Edit</button>
+              <button onClick={() => deleteProperty(property.id)} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Delete</button>
+            </div>
           </div>
         ))}
       </div>
@@ -144,6 +179,31 @@ return (
         <h3 className="text-2xl font-semibold text-slate-900">No properties yet</h3>
         <p className="mx-auto mt-2 max-w-md text-slate-500">Add your first property to start managing buildings, apartments, units and tenants.</p>
         <button onClick={() => setShowForm(true)} className="mt-6 rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800">+ Add Your First Property</button>
+      </div>
+    )}
+
+    {editingProperty && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+          <h3 className="mb-5 text-xl font-bold text-slate-900">Edit Property</h3>
+          <div className="grid gap-5">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Property Name</label>
+              <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Location</label>
+              <input type="text" value={editLocation} onChange={(e) => setEditLocation(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </div>
+          </div>
+          {editError && <p className="mt-4 text-sm font-medium text-red-600">{editError}</p>}
+          <div className="mt-6 flex gap-3">
+            <button onClick={saveEditProperty} disabled={editSaving} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+              {editSaving ? "Saving..." : "Save Changes"}
+            </button>
+            <button onClick={closeEditProperty} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+          </div>
+        </div>
       </div>
     )}
   </section>
