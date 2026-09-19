@@ -82,7 +82,12 @@ setVacantUnits(data as unknown as Unit[]);
 
 async function loadTenants(id: string) {
 setLoading(true);
-const { data, error } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, unit_id, units(unit_number, base_rent, property_id, properties(property_name, landlord_id))").eq("landlord_id", id).order("created_at", { ascending: false });
+// Sorted by the tenant's unit (unit_sort_key: letter prefix + zero-padded
+// number) rather than created_at, so the list always groups by building
+// and unit in natural order - SHOP B1, SHOP B2, ... B1, B2, ... - no
+// matter what order the tenant records happened to be added in.
+// Tenants with no unit assigned yet have no unit_sort_key and sort last.
+const { data, error } = await supabase.from("tenants").select("id, full_name, phone_number, email, status, unit_id, units(unit_number, base_rent, property_id, properties(property_name, landlord_id))").eq("landlord_id", id).order("unit_sort_key", { foreignTable: "units", ascending: true, nullsFirst: false });
 if (error) { console.error("Tenants error:", error); setTenants([]); } else if (data) { setTenants(data as unknown as Tenant[]); }
 setLoading(false);
 }
