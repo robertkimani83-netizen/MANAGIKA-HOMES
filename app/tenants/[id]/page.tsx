@@ -81,7 +81,7 @@ async function loadInvoices() {
 
 async function saveMeterReading() {
   const reading = Number(meterReading);
-  if (!Number.isFinite(reading) || reading < 0) { setWaterMessage("Please enter a valid meter reading."); return; }
+  if (String(meterReading).trim() === "" || !Number.isFinite(reading) || reading < 0) { setWaterMessage("Please enter a valid meter reading."); return; }
   setSavingReading(true);
   setWaterMessage(null);
   const res = await authedFetch("/api/water-readings", {
