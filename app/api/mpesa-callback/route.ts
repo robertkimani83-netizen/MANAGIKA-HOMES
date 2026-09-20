@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
 import { sendWhatsappTemplate } from "@/lib/whatsapp";
+import { nairobiPeriod, nairobiDate } from "@/lib/period";
 
 export async function POST(request: Request) {
 try {
@@ -74,9 +75,9 @@ if (resultCode === 0) {
   }
 
   if (tenantId) {
-    const d = new Date();
-    const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const period = names[d.getMonth()] + " " + d.getFullYear();
+    // Kenya-time month: servers run in UTC, so plain getMonth() would put a
+    // payment made in the first 3 hours of the month on last month's invoice.
+    const period = nairobiPeriod();
 
     let invoice: any = null;
 
@@ -91,20 +92,31 @@ if (resultCode === 0) {
     }
 
     if (!invoice) {
-      const { data: newInvoice } = await supabaseAdmin
+      // The invoice must be for the unit's real rent - not for whatever
+      // happened to be paid - otherwise a part payment would create an
+      // invoice for just that amount and show as fully paid.
+      let unitRent = 0;
+      if (unitId) {
+        const { data: unitRow } = await supabaseAdmin.from("units").select("base_rent").eq("id", unitId).maybeSingle();
+        unitRent = Number(unitRow?.base_rent) || 0;
+      }
+      const invoiceTotal = unitRent > 0 ? unitRent : Number(amount);
+
+      const { data: newInvoice, error: newInvoiceError } = await supabaseAdmin
         .from("invoices")
         .insert({
           invoice_number: "INV-" + Date.now(),
           tenant_id: tenantId,
           unit_id: unitId,
           billing_period: period,
-          rent_amount: amount,
-          total_due: amount,
+          rent_amount: invoiceTotal,
+          total_due: invoiceTotal,
           status: "unpaid",
-          due_date: d.toISOString().slice(0, 10),
+          due_date: nairobiDate(),
         })
         .select("id, total_due")
         .single();
+      if (newInvoiceError) console.error("[mpesa-callback] could not create invoice:", newInvoiceError.message, "receipt", mpesaReceiptNumber);
       invoice = newInvoice;
     }
 
@@ -112,12 +124,17 @@ if (resultCode === 0) {
       // Guard against the same M-Pesa receipt being recorded twice if Safaricom retries the callback.
       const { data: dup } = await supabaseAdmin.from("payments").select("id").eq("transaction_reference", mpesaReceiptNumber).maybeSingle();
       if (!dup) {
-        await supabaseAdmin.from("payments").insert({
+        const { error: paymentInsertError } = await supabaseAdmin.from("payments").insert({
           invoice_id: invoice.id,
           amount_paid: amount,
           payment_method: "mpesa",
           transaction_reference: mpesaReceiptNumber,
         });
+        // A real payment that fails to save must never disappear silently -
+        // this line in the Vercel logs is how it gets found and fixed by hand.
+        if (paymentInsertError && (paymentInsertError as any).code !== "23505") {
+          console.error("[mpesa-callback] PAYMENT NOT SAVED:", paymentInsertError.message, "receipt", mpesaReceiptNumber, "amount", amount, "tenant", tenantId);
+        }
       }
 
       const { data: allPayments } = await supabaseAdmin
@@ -128,7 +145,8 @@ if (resultCode === 0) {
       const totalPaid = (allPayments || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
       const newStatus = totalPaid >= Number(invoice.total_due) ? "paid" : "partially_paid";
 
-      await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
+      const { error: statusUpdateError } = await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
+      if (statusUpdateError) console.error("[mpesa-callback] could not update invoice status:", statusUpdateError.message, "invoice", invoice.id);
 
       // Rent is now fully settled - let the tenant know over WhatsApp. This
       // never blocks or fails the M-Pesa callback response itself: Safaricom
@@ -158,6 +176,9 @@ if (resultCode === 0) {
 return NextResponse.json({ ResultCode: 0, ResultDesc: "Accepted" });
 
 } catch (error: any) {
+// Safaricom still needs a 200 back, but never swallow the reason silently:
+// without this line a failed payment record leaves no trace at all.
+console.error("[mpesa-callback] error while processing callback:", error?.message || error);
 return NextResponse.json({ ResultCode: 0, ResultDesc: "Accepted" });
 }
 }

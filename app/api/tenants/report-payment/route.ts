@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { phoneVariants } from "@/lib/tenant-phone";
+import { nairobiPeriod } from "@/lib/period";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -12,9 +13,8 @@ const supabaseAuth = createClient(supabaseUrl, anonKey);
 // app/payments/page.tsx - all three need to agree on the same string for a
 // claim to line up with the right invoice.
 function currentPeriod() {
-  const d = new Date();
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  return names[d.getMonth()] + " " + d.getFullYear();
+  // Kenya-time month (servers run in UTC) - see lib/period.ts.
+  return nairobiPeriod();
 }
 
 // A tenant with no in-app M-Pesa STK Push (mpesa_enabled) has no way to pay

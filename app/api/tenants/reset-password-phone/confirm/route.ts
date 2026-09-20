@@ -40,8 +40,23 @@ export async function POST(request: Request) {
     if (codeRow.attempts >= 5) {
       return NextResponse.json({ error: "Too many incorrect attempts. Please request a new code." }, { status: 429 });
     }
+
+    // Use up one of the 5 attempts BEFORE checking the code, as a
+    // compare-and-swap on the attempt counter. Doing "read, compare, then
+    // add one" let someone fire many guesses in parallel that all saw the
+    // same old count, getting far more than 5 tries at a 6-digit code.
+    // Only one of several simultaneous requests can win this swap.
+    const { data: reserved, error: reserveError } = await supabaseAdmin
+      .from("password_reset_codes")
+      .update({ attempts: codeRow.attempts + 1 })
+      .eq("id", codeRow.id)
+      .eq("attempts", codeRow.attempts)
+      .select("id");
+    if (reserveError || !reserved || reserved.length === 0) {
+      return NextResponse.json({ error: "Please wait a moment and try again." }, { status: 429 });
+    }
+
     if (!secureCompare(code, codeRow.code)) {
-      await supabaseAdmin.from("password_reset_codes").update({ attempts: codeRow.attempts + 1 }).eq("id", codeRow.id);
       return NextResponse.json({ error: "That code is incorrect." }, { status: 400 });
     }
 

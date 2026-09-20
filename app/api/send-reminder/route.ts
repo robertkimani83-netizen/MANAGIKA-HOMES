@@ -3,11 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { sendWhatsappTemplate } from "@/lib/whatsapp";
+import { nairobiPeriod } from "@/lib/period";
 
 function currentPeriod() {
-const d = new Date();
-const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-return names[d.getMonth()] + " " + d.getFullYear();
+  // Kenya-time month (servers run in UTC) - see lib/period.ts.
+  return nairobiPeriod();
 }
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
@@ -97,13 +97,19 @@ try {
   const unitRaw: any = (tenant as any).units;
   const unitNumber = Array.isArray(unitRaw) ? unitRaw[0]?.unit_number : unitRaw?.unit_number;
 
-  const waResult = await sendWhatsappTemplate(tenant.phone_number, "rent_reminder", "en", [
-    tenant.full_name || "there",
-    balance.toLocaleString(),
-    currentPeriod(),
-    unitNumber || "-",
-  ]);
-  whatsapp = waResult.ok ? { ok: true } : { ok: false, error: waResult.error };
+  if (balance <= 0) {
+    // The WhatsApp template is a fixed "your rent balance of KSh X is due"
+    // message, so it must not go out for a tenant who owes nothing.
+    whatsapp = { ok: false, error: "no unpaid balance, so no WhatsApp rent reminder was sent" };
+  } else {
+    const waResult = await sendWhatsappTemplate(tenant.phone_number, "rent_reminder", "en", [
+      tenant.full_name || "there",
+      balance.toLocaleString(),
+      currentPeriod(),
+      unitNumber || "-",
+    ]);
+    whatsapp = waResult.ok ? { ok: true } : { ok: false, error: waResult.error };
+  }
 } catch (waError: any) {
   whatsapp = { ok: false, error: waError?.message || "WhatsApp request failed" };
 }

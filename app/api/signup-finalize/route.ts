@@ -23,6 +23,13 @@ function addPeriod(billingCycle: string) {
 // and activating the subscription, now that we finally have a
 // landlord_id to attach it to. Called right after the visitor creates
 // their account on the homepage's pay-first signup flow.
+//
+// One payment must buy exactly ONE subscription period, however many times
+// this route is called with the same invoice_id (double-clicks, retries, or
+// someone replaying the request on purpose to get free renewals). The
+// landlord_id claim below is done as an atomic "only if still unclaimed"
+// update, and the payment row has a UNIQUE receipt number, so a second call
+// can never credit or extend anything.
 export async function POST(request: Request) {
   try {
     const authHeader = request.headers.get("authorization") || "";
@@ -39,7 +46,7 @@ export async function POST(request: Request) {
 
     const { data: stkRequest } = await supabaseAdmin
       .from("subscription_stk_requests")
-      .select("id, plan, billing_cycle, amount, status, landlord_id")
+      .select("id, plan, billing_cycle, amount, status, landlord_id, created_at")
       .eq("checkout_request_id", invoiceId)
       .maybeSingle();
 
@@ -47,15 +54,45 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Payment not found or not yet confirmed" }, { status: 400 });
     }
 
-    // Already claimed by a different account — refuse. If it was already
-    // claimed by THIS account (e.g. a retried request), fall through and
-    // treat it as a success rather than erroring.
+    // Already claimed by a different account — refuse.
     if (stkRequest.landlord_id && stkRequest.landlord_id !== landlordId) {
       return NextResponse.json({ error: "This payment is already linked to a different account" }, { status: 409 });
     }
 
-    if (!stkRequest.landlord_id) {
-      await supabaseAdmin.from("subscription_stk_requests").update({ landlord_id: landlordId }).eq("id", stkRequest.id);
+    let claimedNow = false;
+
+    if (stkRequest.landlord_id === landlordId) {
+      // Already linked to THIS account. Either it was fully credited (by the
+      // payment webhook, or by an earlier call to this route) - then this is
+      // just a repeat and must change nothing - or a previous call linked it
+      // but died before crediting, in which case we finish the job. A payment
+      // recorded for this landlord since the request was created means it
+      // was credited.
+      const { data: credited } = await supabaseAdmin
+        .from("subscription_payments")
+        .select("id")
+        .eq("landlord_id", landlordId)
+        .gte("paid_at", stkRequest.created_at)
+        .limit(1);
+      if (credited && credited.length > 0) {
+        return NextResponse.json({ ok: true, already_activated: true });
+      }
+    } else {
+      // Unclaimed: claim it atomically. If two requests race, only one
+      // update matches a row still having landlord_id null.
+      const { data: claimed, error: claimError } = await supabaseAdmin
+        .from("subscription_stk_requests")
+        .update({ landlord_id: landlordId })
+        .eq("id", stkRequest.id)
+        .is("landlord_id", null)
+        .select("id");
+      if (claimError) throw new Error(claimError.message);
+      if (!claimed || claimed.length === 0) {
+        // Lost the race to someone else (possibly a repeat of this same
+        // request, which is now already being handled).
+        return NextResponse.json({ ok: true, already_activated: true });
+      }
+      claimedNow = true;
     }
 
     // Same fallback subscription-callback uses: IntaSend's exact M-Pesa
@@ -64,23 +101,36 @@ export async function POST(request: Request) {
     // present and unique, so it's the dependable choice here.
     const mpesaReceiptNumber = invoiceId;
 
-    const { data: dup } = await supabaseAdmin
-      .from("subscription_payments")
-      .select("id")
-      .eq("mpesa_receipt_number", mpesaReceiptNumber)
-      .maybeSingle();
+    // Undo the claim so the visitor can simply try again, instead of being
+    // left paid-but-not-activated.
+    async function release() {
+      if (claimedNow) {
+        await supabaseAdmin.from("subscription_stk_requests").update({ landlord_id: null }).eq("id", stkRequest!.id);
+      }
+    }
 
-    if (!dup) {
-      await supabaseAdmin.from("subscription_payments").insert({
+    const { data: payment, error: paymentError } = await supabaseAdmin
+      .from("subscription_payments")
+      .insert({
         landlord_id: landlordId,
         plan: stkRequest.plan,
         billing_cycle: stkRequest.billing_cycle,
         amount: stkRequest.amount,
         mpesa_receipt_number: mpesaReceiptNumber,
-      });
+      })
+      .select("id")
+      .single();
+
+    if (paymentError) {
+      if ((paymentError as any).code === "23505") {
+        // This payment was already credited - nothing more to do.
+        return NextResponse.json({ ok: true, already_activated: true });
+      }
+      await release();
+      return NextResponse.json({ error: "Failed to finish activating your subscription" }, { status: 500 });
     }
 
-    await supabaseAdmin.from("landlord_subscriptions").upsert(
+    const { error: subError } = await supabaseAdmin.from("landlord_subscriptions").upsert(
       {
         landlord_id: landlordId,
         plan: stkRequest.plan,
@@ -91,6 +141,13 @@ export async function POST(request: Request) {
       },
       { onConflict: "landlord_id" }
     );
+
+    if (subError) {
+      // Roll the payment record back too, so a retry starts clean.
+      await supabaseAdmin.from("subscription_payments").delete().eq("id", payment.id);
+      await release();
+      return NextResponse.json({ error: "Failed to finish activating your subscription" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {

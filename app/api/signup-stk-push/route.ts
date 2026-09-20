@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/tenant-phone";
 import { extractIntasendError } from "@/lib/intasend-error";
+import { allowRequest, clientIp } from "@/lib/rate-limit";
 
 // Prices are fixed here on the server — never trusted from the client.
 // Must match PLAN_PRICES in subscription-stk-push and the numbers shown
@@ -40,6 +41,18 @@ export async function POST(request: Request) {
     if (!normalized) {
       return NextResponse.json({ error: "Enter a valid M-Pesa phone number" }, { status: 400 });
     }
+    // This route is public (no login yet) and makes a real M-Pesa prompt pop
+    // up on whatever phone number is typed in, so cap how often one person
+    // - or one phone - can trigger it. Generous for a real customer who
+    // mistypes or retries a few times.
+    const ip = clientIp(request);
+    if (
+      !(await allowRequest("signup-stk:ip:" + ip, 10, 60 * 60)) ||
+      !(await allowRequest("signup-stk:phone:" + normalized, 4, 10 * 60))
+    ) {
+      return NextResponse.json({ error: "Too many attempts. Please wait a few minutes and try again." }, { status: 429 });
+    }
+
     // IntaSend wants 2547XXXXXXXX — no leading "+".
     const phoneForIntasend = normalized.replace("+", "");
 

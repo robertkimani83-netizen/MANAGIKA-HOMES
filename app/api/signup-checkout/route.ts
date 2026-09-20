@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { extractIntasendError } from "@/lib/intasend-error";
+import { allowRequest, clientIp } from "@/lib/rate-limit";
 
 // Prices are fixed here on the server — never trusted from the client.
 // Must match PLAN_PRICES in subscription-stk-push, signup-stk-push, and
@@ -39,6 +40,12 @@ export async function POST(request: Request) {
     }
     if (!email || !email.includes("@")) {
       return NextResponse.json({ error: "Enter a valid email address" }, { status: 400 });
+    }
+
+    // Public route that creates a checkout session with IntaSend on every
+    // call - cap how often one person can trigger it.
+    if (!(await allowRequest("signup-checkout:ip:" + clientIp(request), 15, 60 * 60))) {
+      return NextResponse.json({ error: "Too many attempts. Please wait a few minutes and try again." }, { status: 429 });
     }
 
     const monthlyAmount = PLAN_PRICES[plan];

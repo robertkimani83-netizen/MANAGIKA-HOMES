@@ -103,13 +103,25 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (!dup) {
-        await supabaseAdmin.from("subscription_payments").insert({
+        const { error: paymentError } = await supabaseAdmin.from("subscription_payments").insert({
           landlord_id: stkRequest.landlord_id,
           plan: stkRequest.plan,
           billing_cycle: stkRequest.billing_cycle,
           amount: stkRequest.amount,
           mpesa_receipt_number: mpesaReceiptNumber,
         });
+
+        // The receipt number is UNIQUE, so if two copies of the same webhook
+        // race past the check above, only one insert wins - the loser must
+        // not extend the subscription a second time.
+        if (paymentError) {
+          if ((paymentError as any).code === "23505") {
+            return NextResponse.json({ received: true, note: "Already processed" });
+          }
+          console.error("[subscription-callback] could not record payment:", paymentError.message);
+          // Not marked successful, so IntaSend's retry gets another go.
+          return NextResponse.json({ error: "Could not record payment" }, { status: 500 });
+        }
 
         await supabaseAdmin.from("landlord_subscriptions").upsert(
           {
