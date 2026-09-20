@@ -75,10 +75,14 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const tenantId = (body.tenantId || "").toString();
+  // An empty box must never count as a reading of 0 (Number("") and
+  // Number(null) are both 0), or it would overwrite the real reading and
+  // wreck next month's consumption.
+  const readingIsBlank = body.reading === null || body.reading === undefined || String(body.reading).trim() === "";
   const reading = Number(body.reading);
 
   if (!tenantId) return NextResponse.json({ error: "Missing tenantId" }, { status: 400 });
-  if (!Number.isFinite(reading) || reading < 0) {
+  if (readingIsBlank || !Number.isFinite(reading) || reading < 0) {
     return NextResponse.json({ error: "Please enter a valid meter reading." }, { status: 400 });
   }
 
