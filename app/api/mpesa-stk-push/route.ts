@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { phoneVariants } from "@/lib/tenant-phone";
+import { nairobiPeriod } from "@/lib/period";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -9,9 +10,8 @@ const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
 const supabaseAuth = createClient(supabaseUrl, anonKey);
 
 function currentPeriod() {
-const d = new Date();
-const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-return names[d.getMonth()] + " " + d.getFullYear();
+  // Kenya-time month (servers run in UTC) - see lib/period.ts.
+  return nairobiPeriod();
 }
 
 function toSafaricomFormat(phone: string) {
