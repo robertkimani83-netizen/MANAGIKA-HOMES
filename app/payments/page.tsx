@@ -53,6 +53,8 @@ const [payments, setPayments] = useState<Payment[]>([]);
 const [loading, setLoading] = useState(true);
 const [showForm, setShowForm] = useState(false);
 const [tenantId, setTenantId] = useState("");
+const [tenantSearch, setTenantSearch] = useState("");
+const [tenantDropdownOpen, setTenantDropdownOpen] = useState(false);
 const [amount, setAmount] = useState("");
 const [method, setMethod] = useState("mpesa");
 const [reference, setReference] = useState("");
@@ -235,7 +237,7 @@ if (!statusError && newStatus === "paid") {
   }
 }
 
-setTenantId(""); setAmount(""); setReference(""); setMethod("mpesa"); setShowForm(false);
+setTenantId(""); setTenantSearch(""); setAmount(""); setReference(""); setMethod("mpesa"); setShowForm(false);
 loadPayments(landlordId);
 loadUnpaidInvoices(landlordId);
 
@@ -395,14 +397,46 @@ return (
           <p className="text-slate-500">Add an active tenant with a unit assigned first.</p>
         ) : (
           <div className="grid gap-5 md:grid-cols-4">
-            <div>
+            <div className="relative">
               <label className="mb-2 block text-sm font-medium text-slate-700">Tenant</label>
-              <select value={tenantId} onChange={(e) => setTenantId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
-                <option value="">Select tenant</option>
-                {tenants.filter((t) => t.units).map((tenant) => (
-                  <option key={tenant.id} value={tenant.id}>{tenant.full_name} — {tenant.units?.unit_number} (KSh {Number(tenant.units?.base_rent).toLocaleString()})</option>
-                ))}
-              </select>
+              <input
+                type="text"
+                value={tenantSearch}
+                onChange={(e) => { setTenantSearch(e.target.value); setTenantId(""); setTenantDropdownOpen(true); }}
+                onFocus={() => setTenantDropdownOpen(true)}
+                onBlur={() => setTenantDropdownOpen(false)}
+                placeholder="Type a name or unit number..."
+                className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+              />
+              {tenantDropdownOpen && (() => {
+                const query = tenantSearch.trim().toLowerCase();
+                const matches = tenants.filter((t) => t.units && (query === "" || t.full_name.toLowerCase().includes(query) || t.units.unit_number.toLowerCase().includes(query)));
+                return (
+                  <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                    {matches.length === 0 ? (
+                      <p className="px-4 py-3 text-sm text-slate-500">No matching tenant.</p>
+                    ) : (
+                      matches.map((tenant) => (
+                        <button
+                          type="button"
+                          key={tenant.id}
+                          // onMouseDown (not onClick) fires before the input's onBlur closes
+                          // the dropdown, so the click actually registers instead of the list
+                          // disappearing out from under the tap first.
+                          onMouseDown={() => {
+                            setTenantId(tenant.id);
+                            setTenantSearch(tenant.full_name + " — " + tenant.units?.unit_number);
+                            setTenantDropdownOpen(false);
+                          }}
+                          className="block w-full px-4 py-2.5 text-left text-sm hover:bg-amber-50"
+                        >
+                          {tenant.full_name} — {tenant.units?.unit_number} (KSh {Number(tenant.units?.base_rent).toLocaleString()})
+                        </button>
+                      ))
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Amount Paid (KSh)</label>
