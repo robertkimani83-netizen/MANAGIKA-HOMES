@@ -3,11 +3,11 @@ import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
 import { sendWhatsappTemplate } from "@/lib/whatsapp";
+import { nairobiPeriod } from "@/lib/period";
 
 function currentPeriod() {
-const d = new Date();
-const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-return names[d.getMonth()] + " " + d.getFullYear();
+  // Kenya-time month (servers run in UTC) - see lib/period.ts.
+  return nairobiPeriod();
 }
 
 function toKenyanFormat(phone: string) {
