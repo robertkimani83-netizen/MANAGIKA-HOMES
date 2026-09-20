@@ -15,7 +15,7 @@ import { sendWhatsappTemplate } from "@/lib/whatsapp";
 // SECURITY MODEL (per Robert's explicit choice - fully automatic, no
 // landlord tap-to-confirm step):
 // 1. The Android forwarder app on mum's phone is configured to ONLY forward
-//    SMS whose sender exactly matches "FAMILYBANK" - everything else
+//    SMS whose sender matches "FamilyBank" - everything else
 //    (a tenant's personal text saying "i have paid room #20", spam, wrong
 //    numbers) never reaches this endpoint at all.
 // 2. This route re-checks the sender server-side too (defense in depth, in
@@ -33,15 +33,48 @@ import { sendWhatsappTemplate } from "@/lib/whatsapp";
 // FORWARDER APP PAYLOAD TEMPLATE (set this exact JSON in the app's
 // "Webhook URL" config, payload field):
 //   {"from":"%from%","text":"%text%","sentStamp":%sentStamp%}
-// Sender rule in the app: exact match "FAMILYBANK" (not a wildcard).
+// Sender rule in the app: "FamilyBank" (not a wildcard). This route compares
+// the sender case-insensitively, so FamilyBank / FAMILYBANK both pass.
+//
+// SCOPING: set SMS_WEBHOOK_LANDLORD_ID (the landlord account that owns the
+// units this paybill collects for) so a house tag is only ever matched
+// against THAT landlord's units and tenants. If it is unset the route falls
+// back to matching across all units (the original behaviour) and an
+// ambiguous tag (same unit number under two landlords) is logged instead of
+// guessed.
+
+const LANDLORD_ID = (process.env.SMS_WEBHOOK_LANDLORD_ID || "").trim();
+
+// "#D25", "d25", "D 25", "D25." all mean the same unit. Compared for exact
+// equality in code (never through a database LIKE pattern), so characters
+// such as % and _ in a tenant-typed tag can never act as wildcards.
+function normalizeTag(value: string) {
+  return String(value || "").toLowerCase().replace(/\s+/g, "").replace(/[.,;:]+$/, "");
+}
+
+// Month name for the invoice period, in Kenya time. The server runs in UTC,
+// which would file a payment made between midnight and 3am (EAT) on the 1st
+// under the previous month.
+function nairobiPeriod() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Nairobi", year: "numeric", month: "long" }).formatToParts(new Date());
+  const month = parts.find((p) => p.type === "month")?.value || "";
+  const year = parts.find((p) => p.type === "year")?.value || "";
+  return month + " " + year;
+}
 
 export async function POST(request: Request) {
+  // Flips to true the moment the payment row is safely stored. Before that, a
+  // failure returns 500 so the forwarder retries (the duplicate check below
+  // makes a retry harmless); after it, nothing left to retry.
+  let paymentRecorded = false;
+  let rawBodyForLog = "";
   try {
     // HMAC verified over the raw bytes, so read as text before JSON.parse -
     // parsing first and re-stringifying would not reproduce the exact
     // signed payload (key order/whitespace can differ) and would make
     // every signature check fail.
     const rawBody = await request.text();
+    rawBodyForLog = rawBody;
     const suppliedSignature = (request.headers.get("x-signature") || "").trim().toLowerCase();
     const secret = process.env.SMS_WEBHOOK_SECRET || "";
 
@@ -53,7 +86,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const payload = JSON.parse(rawBody);
+    let payload: any;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      // Signed but not JSON - retrying the identical bytes can never help.
+      await logUnmatched({ rawBody, sender: "", messageText: "", reason: "bad_payload" });
+      return NextResponse.json({ status: "ignored_bad_payload" });
+    }
     const from = String(payload?.from || "");
     const text = String(payload?.text || "");
 
@@ -64,10 +104,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: "ignored_sender" });
     }
 
+    // The house tag is everything between "#" and "Mpesa Ref:" so units whose
+    // number contains a space (e.g. "SHOP B1") can be paid as "#SHOP B1" or
+    // "#SHOPB1"; for a normal tag like "#D25" the captured text is unchanged.
     // Matches: "Confirmed. You have received KES 1200.00 for Account 27833
     // from ELIUD OTIENO. #D25 Mpesa Ref:UIK5N73NAW on 20-09-2026 06:40Hrs"
     const match = text.match(
-      /Confirmed\.\s+You have received KES\s+([\d,]+\.\d{2})\s+for Account\s+(\S+)\s+from\s+([A-Za-z\s]+?)\.\s*#(\S+)\s+Mpesa\s*Ref:(\S+)\s+on\s+(\d{2}-\d{2}-\d{4})\s+(\d{2}:\d{2})Hrs/i
+      /Confirmed\.\s+You have received KES\s+([\d,]+\.\d{2})\s+for Account\s+(\S+)\s+from\s+([A-Za-z\s]+?)\.\s*#(.{1,40}?)\s+Mpesa\s*Ref:(\S+)\s+on\s+(\d{2}-\d{2}-\d{4})\s+(\d{2}:\d{2})Hrs/i
     );
 
     if (!match) {
@@ -79,29 +122,49 @@ export async function POST(request: Request) {
     const amount = Number(amountRaw.replace(/,/g, ""));
 
     // House/unit tag is the only reliable per-tenant identifier here (the
-    // bank Account number is fixed to mum's account on every message) -
-    // exact match, case-insensitive so "#d25" and "#D25" both resolve.
-    const { data: unit } = await supabaseAdmin
+    // bank Account number is fixed to mum's account on every message). Only
+    // this landlord's units are considered when SMS_WEBHOOK_LANDLORD_ID is set.
+    let unitQuery = supabaseAdmin
       .from("units")
-      .select("id, unit_number")
-      .ilike("unit_number", houseTag)
-      .maybeSingle();
+      .select("id, unit_number, base_rent, properties!inner(landlord_id)");
+    if (LANDLORD_ID) unitQuery = unitQuery.eq("properties.landlord_id", LANDLORD_ID);
+    const { data: unitRows, error: unitError } = await unitQuery;
+    if (unitError) throw new Error("unit lookup failed: " + unitError.message);
 
-    if (!unit) {
+    const wanted = normalizeTag(houseTag);
+    const unitMatches = (unitRows || []).filter((u: any) => normalizeTag(u.unit_number) === wanted);
+
+    if (unitMatches.length === 0) {
       await logUnmatched({ rawBody, sender: from, messageText: text, reason: "no_matching_unit", amount, houseTag, payerName, mpesaRef });
       return NextResponse.json({ status: "unmatched" });
     }
+    if (unitMatches.length > 1) {
+      await logUnmatched({ rawBody, sender: from, messageText: text, reason: "ambiguous_unit", amount, houseTag, payerName, mpesaRef });
+      return NextResponse.json({ status: "unmatched" });
+    }
+    const unit = unitMatches[0] as any;
 
-    const { data: tenant } = await supabaseAdmin
+    let tenantQuery = supabaseAdmin
       .from("tenants")
-      .select("id, unit_id, full_name, phone_number")
-      .eq("unit_id", unit.id)
-      .maybeSingle();
+      .select("id, unit_id, full_name, phone_number, status")
+      .eq("unit_id", unit.id);
+    if (LANDLORD_ID) tenantQuery = tenantQuery.eq("landlord_id", LANDLORD_ID);
+    const { data: tenantRows, error: tenantError } = await tenantQuery;
+    if (tenantError) throw new Error("tenant lookup failed: " + tenantError.message);
 
-    if (!tenant) {
+    // Prefer the active tenant if a moved-out one is still on the unit.
+    const activeTenants = (tenantRows || []).filter((t: any) => t.status === "active");
+    const tenantCandidates = activeTenants.length > 0 ? activeTenants : tenantRows || [];
+
+    if (tenantCandidates.length === 0) {
       await logUnmatched({ rawBody, sender: from, messageText: text, reason: "no_active_tenant_for_unit", amount, houseTag, payerName, mpesaRef });
       return NextResponse.json({ status: "unmatched" });
     }
+    if (tenantCandidates.length > 1) {
+      await logUnmatched({ rawBody, sender: from, messageText: text, reason: "multiple_tenants_for_unit", amount, houseTag, payerName, mpesaRef });
+      return NextResponse.json({ status: "unmatched" });
+    }
+    const tenant = tenantCandidates[0] as any;
 
     // Dedup - guard against the forwarder app retrying (network hiccup,
     // phone reboot re-sending a stored failed message) recording the same
@@ -112,20 +175,28 @@ export async function POST(request: Request) {
     }
 
     const d = new Date();
-    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const period = monthNames[d.getMonth()] + " " + d.getFullYear();
+    const period = nairobiPeriod();
+
+    // The amount owed comes from the unit's own rent, never from what happened
+    // to be paid: a KSh 1,200 payment against a 10,000 rent must show as
+    // partially paid, not as a fully settled 1,200 invoice. Units with no rent
+    // set keep the old behaviour so their payment is still recorded.
+    const unitRent = Number(unit.base_rent) || 0;
+    const invoiceTotal = unitRent > 0 ? unitRent : amount;
 
     let invoice: { id: string; total_due: number } | null = null;
-    const { data: existingInvoice } = await supabaseAdmin
-      .from("invoices")
-      .select("id, total_due")
-      .eq("tenant_id", tenant.id)
-      .eq("billing_period", period)
-      .maybeSingle();
+    const findInvoice = async () => {
+      const { data } = await supabaseAdmin
+        .from("invoices")
+        .select("id, total_due")
+        .eq("tenant_id", tenant.id)
+        .eq("billing_period", period)
+        .maybeSingle();
+      return (data as any) || null;
+    };
 
-    if (existingInvoice) {
-      invoice = existingInvoice as any;
-    } else {
+    invoice = await findInvoice();
+    if (!invoice) {
       const { data: newInvoice } = await supabaseAdmin
         .from("invoices")
         .insert({
@@ -133,14 +204,15 @@ export async function POST(request: Request) {
           tenant_id: tenant.id,
           unit_id: unit.id,
           billing_period: period,
-          rent_amount: amount,
-          total_due: amount,
+          rent_amount: invoiceTotal,
+          total_due: invoiceTotal,
           status: "unpaid",
           due_date: d.toISOString().slice(0, 10),
         })
         .select("id, total_due")
         .single();
-      invoice = newInvoice as any;
+      // If a concurrent request (or the monthly cron) created it first, use theirs.
+      invoice = (newInvoice as any) || (await findInvoice());
     }
 
     if (!invoice) {
@@ -148,17 +220,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: "error" });
     }
 
-    await supabaseAdmin.from("payments").insert({
+    const { error: paymentError } = await supabaseAdmin.from("payments").insert({
       invoice_id: invoice.id,
       amount_paid: amount,
       payment_method: "bank_transfer",
       transaction_reference: mpesaRef,
     });
+    if (paymentError) {
+      // 23505 = unique violation on transaction_reference: a concurrent
+      // delivery of the same SMS won the race - already recorded, not an error.
+      if ((paymentError as any).code === "23505") {
+        return NextResponse.json({ status: "duplicate_ignored" });
+      }
+      throw new Error("could not store payment: " + paymentError.message);
+    }
+    paymentRecorded = true;
 
     const { data: allPayments } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", invoice.id);
     const totalPaid = (allPayments || []).reduce((sum, p: any) => sum + (Number(p.amount_paid) || 0), 0);
     const newStatus = totalPaid >= Number(invoice.total_due) ? "paid" : "partially_paid";
-    await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
+    const { error: statusError } = await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
+    if (statusError) {
+      // The payment row is safe, but the invoice would keep showing "unpaid".
+      // Surface it on the Unmatched SMS page rather than failing silently.
+      await logUnmatched({ rawBody, sender: from, messageText: text, reason: "invoice_status_update_failed", amount, houseTag, payerName, mpesaRef });
+      return NextResponse.json({ status: "recorded_with_warnings" });
+    }
 
     // Same best-effort WhatsApp confirmation as mpesa-callback - never
     // blocks or fails the webhook response if it errors, the payment is
@@ -179,10 +266,22 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ status: "recorded" });
   } catch (error: any) {
-    // Swallow so the forwarder app doesn't get stuck retrying forever on a
-    // transient error - the message is lost in that rare case rather than
-    // hammering the endpoint, matching mpesa-callback's own posture.
-    return NextResponse.json({ error: error?.message || "Internal error" }, { status: 500 });
+    // Always leave a trace in sms_payment_log so a failure is visible on the
+    // "Unmatched bank SMS" page instead of only in Vercel logs.
+    await logUnmatched({
+      rawBody: rawBodyForLog,
+      sender: "",
+      messageText: "",
+      reason: "internal_error: " + String(error?.message || "unknown").slice(0, 200),
+    });
+    if (paymentRecorded) {
+      // The payment is stored; only a later step (status update / WhatsApp)
+      // failed. Retrying can't add anything, so tell the forwarder "done".
+      return NextResponse.json({ status: "recorded_with_warnings" });
+    }
+    // Nothing was stored, so let the forwarder retry. The transaction
+    // reference check above makes a repeat delivery safe (never double-books).
+    return NextResponse.json({ status: "error" }, { status: 500 });
   }
 }
 
