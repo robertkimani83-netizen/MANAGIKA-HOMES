@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { nairobiPeriod } from "@/lib/period";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -17,9 +18,8 @@ async function getLandlordId(request: Request) {
 }
 
 function currentPeriod() {
-  const d = new Date();
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  return names[d.getMonth()] + " " + d.getFullYear();
+  // Kenya-time month (servers run in UTC) - see lib/period.ts.
+  return nairobiPeriod();
 }
 
 // water_readings has no client-facing RLS policies on purpose (see the
