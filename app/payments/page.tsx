@@ -66,6 +66,9 @@ const [authToken, setAuthToken] = useState("");
 const [unpaidInvoices, setUnpaidInvoices] = useState<UnpaidInvoice[]>([]);
 const [savingPayment, setSavingPayment] = useState(false);
 const [remindingAll, setRemindingAll] = useState(false);
+// null = this account has no "Unmatched bank SMS" page (the button stays hidden);
+// a number = how many bank SMS still need a look.
+const [unmatchedCount, setUnmatchedCount] = useState<number | null>(null);
 
 const period = currentPeriod();
 
@@ -96,6 +99,22 @@ setLoadingClaims(false);
 useEffect(() => {
 if (!authToken) return;
 loadClaims(authToken);
+}, [authToken]);
+
+// Only the account that receives the bank SMS gets a successful answer here;
+// every other landlord gets a 404, so they never see the button.
+useEffect(() => {
+if (!authToken) return;
+(async () => {
+try {
+const res = await fetch("/api/landlord/sms-payment-log", { headers: { Authorization: "Bearer " + authToken } });
+if (!res.ok) { setUnmatchedCount(null); return; }
+const result = await res.json();
+setUnmatchedCount(Array.isArray(result.entries) ? result.entries.length : 0);
+} catch {
+setUnmatchedCount(null);
+}
+})();
 }, [authToken]);
 
 async function resolveClaim(claim: PaymentClaim, action: "confirm" | "dismiss") {
@@ -384,7 +403,13 @@ return (
           <p className="mt-1 text-slate-500">Track rent, payments, invoices and balances — {period}.</p>
         </div>
       </div>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
+        {unmatchedCount !== null && (
+          <a href="/payments/unmatched" className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition">
+            📩 Unmatched bank SMS
+            {unmatchedCount > 0 && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-sm font-semibold text-red-700">{unmatchedCount}</span>}
+          </a>
+        )}
         <button onClick={exportLedger} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition">⬇ Export CSV</button>
         <button onClick={() => setShowForm(true)} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Record Payment</button>
       </div>
