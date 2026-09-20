@@ -303,7 +303,9 @@ alert("Reminder sent to " + summary.tenant.full_name + "!");
 // at once - fine at the tenant counts this app deals with, and easier to
 // reason about if one send fails partway through.
 async function remindAllUnpaid() {
-const unpaidSummaries = tenantSummaries.filter((s) => s.status !== "Paid");
+// Only tenants who really owe something - a tenant with no unit assigned has
+// nothing expected, so they must not be told "KSh 0 is due".
+const unpaidSummaries = tenantSummaries.filter((s) => s.status !== "Paid" && s.balance > 0);
 if (unpaidSummaries.length === 0) { alert("Everyone is paid up for " + period + " - nothing to send."); return; }
 
 const withPhone = unpaidSummaries.filter((s) => s.tenant.phone_number);
