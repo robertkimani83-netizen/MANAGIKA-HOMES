@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { normalizePhone } from "@/lib/tenant-phone";
+import WeeklySummaryCard from "../WeeklySummaryCard";
 function currentPeriod() {
 const d = new Date();
 const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -392,6 +393,8 @@ return (
         <p className="mt-1 text-sm text-slate-400">Currently active</p>
       </div>
     </div>
+
+    <WeeklySummaryCard />
 
     {!loading && (unpaidTenants.length > 0 || vacantCount > 0 || maintenanceCount > 0 || complaintCount > 0) && (
       <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
