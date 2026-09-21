@@ -196,11 +196,14 @@ const newUnitId = selectedUnitId || null;
 const { error: tenantError } = await supabase.from("tenants").update({ unit_id: newUnitId }).eq("id", tenantId).eq("landlord_id", landlordId);
 if (tenantError) { setUnitMessage("Error: " + tenantError.message); setSavingUnit(false); return; }
 
+const unitStatusErrors: string[] = [];
 if (previousUnitId && previousUnitId !== newUnitId) {
-  await supabase.from("units").update({ status: "vacant" }).eq("id", previousUnitId);
+  const { error: vacateError } = await supabase.from("units").update({ status: "vacant" }).eq("id", previousUnitId);
+  if (vacateError) unitStatusErrors.push(vacateError.message);
 }
 if (newUnitId) {
-  await supabase.from("units").update({ status: "occupied" }).eq("id", newUnitId);
+  const { error: occupyError } = await supabase.from("units").update({ status: "occupied" }).eq("id", newUnitId);
+  if (occupyError) unitStatusErrors.push(occupyError.message);
   // Take the unit off any public "For Rent" listing now that it has a
   // tenant again - no-op if it never had one.
   await supabase.from("unit_listings").update({ is_published: false }).eq("unit_id", newUnitId);
@@ -220,7 +223,7 @@ if (newUnitId) {
 setUnitOptions(options);
 await loadWaterReadings();
 
-setUnitMessage("Saved.");
+setUnitMessage(unitStatusErrors.length > 0 ? "Saved, but the unit's occupied/vacant status could not be updated (" + unitStatusErrors.join("; ") + "). Please check the Units page." : "Saved.");
 setSavingUnit(false);
 }
 
