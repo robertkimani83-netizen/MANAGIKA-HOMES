@@ -349,6 +349,14 @@ export default function TenantDashboard() {
               {payingBalance ? tr("Starting...") : tr("Pay with M-Pesa")}
             </button>
           )}
+          {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.paybill_enabled && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-left text-sm">
+              <p className="font-semibold text-gray-700">{tr("Pay via M-Pesa Paybill:")}</p>
+              <p className="text-gray-700">{tr("Business Number:")} <span className="font-semibold">{paymentInfo.paybill_number}</span></p>
+              <p className="text-gray-700">{tr("Account Number:")} <span className="font-semibold">{paymentInfo.paybill_account}</span></p>
+              <p className="mt-1 text-xs text-gray-500">{tr("Use this account number exactly, so your payment is matched to your home.")}</p>
+            </div>
+          )}
           {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.manual_mpesa_enabled && (
             <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-left text-sm">
               <p className="font-semibold text-gray-700">{tr("Pay via M-Pesa:")}</p>
@@ -381,7 +389,7 @@ export default function TenantDashboard() {
               )}
             </div>
           )}
-          {currentInvoice?.status !== "paid" && tenant.units && !paymentInfo.mpesa_enabled && !paymentInfo.manual_mpesa_enabled && !paymentInfo.bank_enabled && (
+          {currentInvoice?.status !== "paid" && tenant.units && !paymentInfo.mpesa_enabled && !paymentInfo.manual_mpesa_enabled && !paymentInfo.bank_enabled && !paymentInfo.paybill_enabled && (
             <p className="mt-4 text-sm text-gray-500">{tr("Online payment isn't set up yet - please contact your landlord directly to pay rent.")}</p>
           )}
         </div>
