@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { normalizePhone } from "@/lib/tenant-phone";
 function currentPeriod() {
 const d = new Date();
 const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -12,7 +13,7 @@ id: string;
 status: string;
 urgency: string;
 };
-type UnpaidTenant = { name: string; unit: string; amount: number; periods: number; currentOwed: boolean };
+type UnpaidTenant = { name: string; unit: string; amount: number; periods: number; currentOwed: boolean; phone: string };
 
 export default function LandlordDashboard() {
 const router = useRouter();
@@ -52,7 +53,7 @@ setLoading(true);
   ] = await Promise.all([
     supabase.from("landlord_subscriptions").select("status, trial_ends_at").eq("landlord_id", landlordId).maybeSingle(),
     supabase.from("properties").select("id").eq("landlord_id", landlordId),
-    supabase.from("tenants").select("id, status, full_name, unit_id").eq("landlord_id", landlordId),
+    supabase.from("tenants").select("id, status, full_name, unit_id, phone_number").eq("landlord_id", landlordId),
     // "What needs your attention today" / Outstanding - who specifically
     // hasn't paid, across ANY billing period they owe on (not just this
     // one). This only needs to look at EARLIER periods, since this
@@ -193,6 +194,7 @@ setLoading(true);
       amount: totalBalance,
       periods: priorPeriodsWithBalance + (currentBalance > 0 ? 1 : 0),
       currentOwed: currentBalance > 0,
+      phone: tenant.phone_number || "",
     };
     outstandingTotal += totalBalance;
   }
@@ -238,6 +240,47 @@ async function signOut() {
   router.push("/landlord/login");
 }
 const formatMoney = (amount: number) => "KSh " + amount.toLocaleString();
+// One-tap reminder: opens WhatsApp with the message already written, so the
+// landlord only has to press send. Only offered when the tenant has a usable
+// Kenyan phone number on file.
+function whatsappReminderLink(t: UnpaidTenant) {
+  const phone = normalizePhone(t.phone);
+  if (!phone) return null;
+  const message = "Hello " + t.name + ", a friendly reminder that your rent balance for Unit " + t.unit + " is KSh " + t.amount.toLocaleString() + ". Kindly pay when you can. Thank you.";
+  return "https://wa.me/" + phone.replace("+", "") + "?text=" + encodeURIComponent(message);
+}
+// The menu, grouped by what the landlord is trying to do instead of one long
+// flat list of sixteen buttons.
+const menuGroups: { title: string; items: { href: string; label: string; external?: boolean; extraClass?: string }[] }[] = [
+  { title: "Money", items: [
+    { href: "/payments", label: "💰 Payments" },
+    { href: "/expenses", label: "💸 Expenses" },
+    { href: "/landlord/reports", label: "📊 Monthly Report" },
+    { href: "/payment-settings", label: "💳 Payment Settings" },
+  ] },
+  { title: "Tenants & Leases", items: [
+    { href: "/tenants", label: "👥 Tenants" },
+    { href: "/leases", label: "📄 Leases" },
+    { href: "/screening", label: "🔎 Tenant Screening" },
+    { href: "/team", label: "🧑‍🤝‍🧑 Team & Caretakers" },
+  ] },
+  { title: "Property", items: [
+    { href: "/properties", label: "🏠 Properties" },
+    { href: "/units", label: "🚪 Units" },
+  ] },
+  { title: "Repairs & Notices", items: [
+    { href: "/maintenance", label: "🔧 Maintenance" },
+    { href: "/complaints", label: "📢 Complaints" + (complaintCount > 0 ? " (" + complaintCount + ")" : "") },
+    { href: "/announcements", label: "📣 Announcements" },
+    { href: "/maintenance-schedules", label: "🗓️ Preventive Maintenance" },
+    { href: "/vendors", label: "🧰 Vendors" },
+  ] },
+  { title: "Help & More", items: [
+    { href: "/ai-assistant", label: "🤖 AI Assistant" },
+    { href: "https://wa.me/97431502816?text=Hi%20Managika%20Homes%2C%20I%20need%20help%20with%3A%20", label: "💬 Chat on WhatsApp", external: true },
+    { href: "/download-app", label: "📲 Download App", extraClass: "mh-hide-in-app" },
+  ] },
+];
 const steps = [
 { number: "①", icon: "🏠", title: "Properties", description: "Add and manage your buildings and apartments.", label: "Properties", value: propertyCount, button: "Manage Properties", href: "/properties" },
 { number: "②", icon: "🚪", title: "Units", description: "Add rental units inside your properties.", label: "Total Units", value: unitCount, button: "Manage Units", href: "/units" },
@@ -268,28 +311,34 @@ return (
       <aside className="w-full shrink-0 lg:w-60">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-6">
           <h3 className="text-lg font-bold">Quick Navigation</h3>
-          <nav className="mt-4 flex flex-col gap-2">
-            <a href="/properties" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🏠 Properties</a>
-            <a href="/units" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🚪 Units</a>
-            <a href="/tenants" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">👥 Tenants</a>
-            <a href="/payments" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💰 Payments</a>
-            <a href="/maintenance" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🔧 Maintenance</a>
-            <a href="/complaints" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📢 Complaints{complaintCount > 0 ? " (" + complaintCount + ")" : ""}</a>
-            <a href="/announcements" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📣 Announcements</a>
-            <a href="/ai-assistant" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🤖 AI Assistant</a>
-            <a href="/payment-settings" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💳 Payment Settings</a>
-            <a href="/team" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🧑‍🤝‍🧑 Team &amp; Caretakers</a>
-            <a href="/screening" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🔎 Tenant Screening</a>
-            <a href="/leases" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📄 Leases</a>
-            <a href="/expenses" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💸 Expenses</a>
-            <a href="/vendors" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🧰 Vendors</a>
-            <a href="/maintenance-schedules" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">🗓️ Preventive Maintenance</a>
-            <a href="https://wa.me/97431502816?text=Hi%20Managika%20Homes%2C%20I%20need%20help%20with%3A%20" target="_blank" rel="noopener noreferrer" className="rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">💬 Chat on WhatsApp</a>
-            <a href="/download-app" className="mh-hide-in-app rounded-xl border border-slate-200 px-4 py-3 font-semibold hover:bg-slate-50">📲 Download App</a>
+          <nav className="mt-4 flex flex-col gap-5">
+            {menuGroups.map((group) => (
+              <div key={group.title}>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">{group.title}</p>
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+                  {group.items.map((item) => (
+                    <a
+                      key={item.href}
+                      href={item.href}
+                      {...(item.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                      className={"rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold hover:bg-slate-50 " + (item.extraClass || "")}
+                    >
+                      {item.label}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))}
           </nav>
         </div>
       </aside>
       <div className="min-w-0 flex-1">
+    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <a href="/payments?record=1" className="flex items-center justify-center rounded-xl bg-slate-900 px-4 py-4 text-center text-sm font-bold text-white shadow-sm hover:bg-slate-800">💰 Record Payment</a>
+      <a href="/tenants?add=1" className="flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-4 text-center text-sm font-bold text-white shadow-sm hover:bg-emerald-700">👤 Add Tenant</a>
+      <a href="/payments#rent-status" className="flex items-center justify-center rounded-xl bg-amber-600 px-4 py-4 text-center text-sm font-bold text-white shadow-sm hover:bg-amber-700">🔔 Send Reminders</a>
+      <a href="/landlord/reports" className="flex items-center justify-center rounded-xl bg-blue-600 px-4 py-4 text-center text-sm font-bold text-white shadow-sm hover:bg-blue-700">📊 Monthly Report</a>
+    </div>
     <div className="mb-8">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {steps.map((step) => (
@@ -354,7 +403,12 @@ return (
                 <p className="font-semibold text-amber-900">{t.name} — Unit {t.unit}</p>
                 <p className="text-sm text-amber-700">{t.periods > 1 ? `Owes rent for ${t.periods} months` : t.currentOwed ? "Hasn't paid rent this month" : "Owes rent from a previous month"}</p>
               </div>
-              <p className="text-lg font-bold text-amber-900">{formatMoney(t.amount)}</p>
+              <div className="flex flex-col items-end gap-2">
+                <p className="text-lg font-bold text-amber-900">{formatMoney(t.amount)}</p>
+                {whatsappReminderLink(t) && (
+                  <a href={whatsappReminderLink(t) as string} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700">💬 WhatsApp reminder</a>
+                )}
+              </div>
             </div>
           ))}
           {unpaidTenants.length > 5 && (
