@@ -292,7 +292,7 @@ return (
         <p className="font-semibold">Your SMS reminders will say:</p>
         <p className="mt-1">Your September rent of KSh 5,000 for Unit A14 is due.{penalties ? " Please pay to avoid penalties." : ""}</p>
       </div>
-      <p className="mt-2 text-xs text-slate-500">SMS reminders never name a date. WhatsApp reminders use wording approved by Meta, which says "avoid penalties" (with a Paybill set, it names no date either). If you turn penalties off, tenants get the SMS only, so nobody is told something untrue.</p>
+      <p className="mt-2 text-xs text-slate-500">Reminders never name a date. WhatsApp reminders use wording approved by Meta, which says "avoid penalties". If you turn penalties off, tenants get the SMS only, so nobody is told something untrue.</p>
     </div>
 
     <button onClick={save} disabled={saving} className="rounded-lg bg-emerald-600 px-6 py-3 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
