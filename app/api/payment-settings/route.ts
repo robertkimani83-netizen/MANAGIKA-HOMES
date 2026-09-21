@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { cleanAccountPrefix, cleanPaybill } from "@/lib/paybill";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -40,6 +41,8 @@ if (!data) {
     bank_account_name: "",
     bank_account_number: "",
     bank_branch: "",
+    paybill_number: "",
+    paybill_account: "",
   });
 }
 
@@ -59,6 +62,8 @@ return NextResponse.json({
   bank_account_name: data.bank_account_name || "",
   bank_account_number: data.bank_account_number || "",
   bank_branch: data.bank_branch || "",
+  paybill_number: data.paybill_number || "",
+  paybill_account: data.paybill_account || "",
 });
 }
 
@@ -67,6 +72,14 @@ const landlordId = await getLandlordId(request);
 if (!landlordId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
 const body = await request.json();
+
+// Paybill shown to tenants in reminders: 5-7 digits, or left empty. Reject a
+// bad number instead of quietly dropping it, so the landlord sees the mistake.
+const paybillRaw = String(body.paybill_number ?? "").trim();
+const paybillNumber = cleanPaybill(paybillRaw);
+if (paybillRaw && !paybillNumber) {
+  return NextResponse.json({ error: "The Paybill number should be 5 to 7 digits, like 222111." }, { status: 400 });
+}
 
 const update: any = {
   landlord_id: landlordId,
@@ -82,6 +95,8 @@ const update: any = {
   bank_account_name: body.bank_account_name || null,
   bank_account_number: body.bank_account_number || null,
   bank_branch: body.bank_branch || null,
+  paybill_number: paybillNumber || null,
+  paybill_account: cleanAccountPrefix(body.paybill_account) || null,
   updated_at: new Date().toISOString(),
 };
 
