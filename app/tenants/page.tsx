@@ -74,6 +74,12 @@ const [editEmail, setEditEmail] = useState("");
 const [editSaving, setEditSaving] = useState(false);
 const [editError, setEditError] = useState<string | null>(null);
 
+// Lets the dashboard's "Add Tenant" button land here with the form already
+// open (/tenants?add=1).
+useEffect(() => {
+if (new URLSearchParams(window.location.search).get("add") === "1") setShowForm(true);
+}, []);
+
 useEffect(() => {
 async function init() {
 const { data: { user } } = await supabase.auth.getUser();
