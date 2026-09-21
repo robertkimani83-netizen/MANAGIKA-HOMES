@@ -12,7 +12,7 @@ id: string;
 status: string;
 urgency: string;
 };
-type UnpaidTenant = { name: string; unit: string; amount: number; periods: number };
+type UnpaidTenant = { name: string; unit: string; amount: number; periods: number; currentOwed: boolean };
 
 export default function LandlordDashboard() {
 const router = useRouter();
@@ -29,6 +29,7 @@ const [maintenanceCount, setMaintenanceCount] = useState(0);
 const [urgentMaintenance, setUrgentMaintenance] = useState(0);
 const [complaintCount, setComplaintCount] = useState(0);
 const [loading, setLoading] = useState(true);
+const [loadError, setLoadError] = useState<string | null>(null);
 const [trend, setTrend] = useState<{ period: string; label: string; totalDue: number; totalCollected: number; collectionRate: number | null }[]>([]);
 useEffect(() => {
 async function loadStats() {
@@ -44,10 +45,10 @@ setLoading(true);
   // to show anything (it was ~8 sequential round trips, now it's ~3
   // rounds of parallel ones).
   const [
-    { data: subscription },
-    { data: landlordProperties },
-    { data: tenantsForPeriod },
-    { data: priorUnpaidInvoices },
+    { data: subscription, error: subscriptionError },
+    { data: landlordProperties, error: propertiesError },
+    { data: tenantsForPeriod, error: tenantsError },
+    { data: priorUnpaidInvoices, error: priorInvoicesError },
   ] = await Promise.all([
     supabase.from("landlord_subscriptions").select("status, trial_ends_at").eq("landlord_id", landlordId).maybeSingle(),
     supabase.from("properties").select("id").eq("landlord_id", landlordId),
@@ -65,6 +66,14 @@ setLoading(true);
       .neq("billing_period", period),
   ]);
 
+  // A failed lookup must not look like "no subscription" (that would bounce an
+  // active landlord to the billing page) or like "nobody owes anything".
+  if (subscriptionError || propertiesError || tenantsError || priorInvoicesError) {
+    setLoadError("Your dashboard could not be loaded (" + (subscriptionError || propertiesError || tenantsError || priorInvoicesError)!.message + "). Please refresh the page. If it keeps happening, sign out and sign in again.");
+    setLoading(false);
+    return;
+  }
+
   const onLiveTrial = subscription?.status === "trial" && (!subscription.trial_ends_at || new Date(subscription.trial_ends_at) > new Date());
   if (!subscription || (subscription.status !== "active" && !onLiveTrial)) { window.location.href = "/landlord/billing"; return; }
 
@@ -76,17 +85,22 @@ setLoading(true);
   // Stage 2: each of these depends on one Stage 1 result (propertyIds,
   // tenantIds, or priorUnpaidInvoices), but not on each other, so again
   // fired together rather than in sequence.
-  const [{ data: units }, { data: invoicesThisPeriod }, { data: paymentsOnThese }] = await Promise.all([
+  const [{ data: units, error: unitsError }, { data: invoicesThisPeriod, error: invoicesError }, { data: paymentsOnThese, error: paymentsOnTheseError }] = await Promise.all([
     propertyIds.length > 0
       ? supabase.from("units").select("id, base_rent, status, unit_number").in("property_id", propertyIds)
-      : Promise.resolve({ data: [] as { id: string; base_rent: number; status: string; unit_number: string }[] }),
+      : Promise.resolve({ data: [] as { id: string; base_rent: number; status: string; unit_number: string }[], error: null }),
     tenantIds.length > 0
-      ? supabase.from("invoices").select("id, tenant_id, units(unit_number)").in("tenant_id", tenantIds).eq("billing_period", period)
-      : Promise.resolve({ data: [] as { id: string; tenant_id: string; units: { unit_number: string } | null }[] }),
+      ? supabase.from("invoices").select("id, tenant_id, total_due, units(unit_number)").in("tenant_id", tenantIds).eq("billing_period", period)
+      : Promise.resolve({ data: [] as { id: string; tenant_id: string; units: { unit_number: string } | null }[], error: null }),
     priorUnpaidInvoices && priorUnpaidInvoices.length > 0
       ? supabase.from("payments").select("invoice_id, amount_paid").in("invoice_id", (priorUnpaidInvoices as any[]).map((inv) => inv.id))
-      : Promise.resolve({ data: [] as { invoice_id: string; amount_paid: number }[] }),
+      : Promise.resolve({ data: [] as { invoice_id: string; amount_paid: number }[], error: null }),
   ]);
+  if (unitsError || invoicesError || paymentsOnTheseError) {
+    setLoadError("Your dashboard could not be loaded (" + (unitsError || invoicesError || paymentsOnTheseError)!.message + "). Please refresh the page.");
+    setLoading(false);
+    return;
+  }
   const landlordUnits = units || [];
   const unitIds = landlordUnits.map((u) => u.id);
   const occupiedUnits = landlordUnits.filter((u) => u.status === "occupied");
@@ -107,8 +121,11 @@ setLoading(true);
   const currentPaidByTenant: Record<string, number> = {};
   const currentUnitNumberByTenant: Record<string, string> = {};
   const invoiceTenant: Record<string, string> = {};
+  // What this month's invoice really adds up to (rent + water) per tenant.
+  const currentTotalByTenant: Record<string, number> = {};
   for (const inv of (invoicesThisPeriod || []) as any[]) {
     invoiceTenant[inv.id] = inv.tenant_id;
+    currentTotalByTenant[inv.tenant_id] = Math.max(currentTotalByTenant[inv.tenant_id] || 0, Number(inv.total_due) || 0);
     currentUnitNumberByTenant[inv.tenant_id] = inv.units?.unit_number || "";
   }
   const invoiceIds = (invoicesThisPeriod || []).map((i) => i.id);
@@ -117,10 +134,10 @@ setLoading(true);
   // Stage 2) and the maintenance/complaints lookups (need unitIds from
   // Stage 2) are independent of each other, so one more parallel round
   // instead of three more sequential ones.
-  const [{ data: paymentsThisPeriod }, { data: maintenanceRequests }, { data: complaintRows }] = await Promise.all([
+  const [{ data: paymentsThisPeriod, error: paymentsThisPeriodError }, { data: maintenanceRequests }, { data: complaintRows }] = await Promise.all([
     invoiceIds.length > 0
       ? supabase.from("payments").select("invoice_id, amount_paid").in("invoice_id", invoiceIds)
-      : Promise.resolve({ data: [] as { invoice_id: string; amount_paid: number }[] }),
+      : Promise.resolve({ data: [] as { invoice_id: string; amount_paid: number }[], error: null }),
     unitIds.length > 0
       ? supabase.from("maintenance_requests").select("id, status, urgency").in("unit_id", unitIds)
       : Promise.resolve({ data: [] as MaintenanceRequest[] }),
@@ -128,6 +145,11 @@ setLoading(true);
       ? supabase.from("complaints").select("id, status").in("unit_id", unitIds)
       : Promise.resolve({ data: [] as { id: string; status: string }[] }),
   ]);
+  if (paymentsThisPeriodError) {
+    setLoadError("Your dashboard could not be loaded (" + paymentsThisPeriodError.message + "). Please refresh the page.");
+    setLoading(false);
+    return;
+  }
   for (const p of paymentsThisPeriod || []) {
     const amt = Number(p.amount_paid) || 0;
     collected += amt;
@@ -145,11 +167,15 @@ setLoading(true);
   // tenant with zero real invoice rows still gets evaluated against this
   // month's expected rent instead of being skipped outright.
   const byTenant: Record<string, UnpaidTenant> = {};
+  let waterExtra = 0;
   for (const tenant of activeTenantRows as any[]) {
     const unit = tenant.unit_id ? unitsById[tenant.unit_id] : null;
     if (!unit || unit.status !== "occupied") continue;
-    const expected = Number(unit.base_rent) || 0;
-    if (expected <= 0) continue;
+    const baseExpected = Number(unit.base_rent) || 0;
+    if (baseExpected <= 0) continue;
+    // Rent + water when this month's invoice is bigger than the plain rent.
+    const expected = Math.max(baseExpected, currentTotalByTenant[tenant.id] || 0);
+    waterExtra += expected - baseExpected;
 
     const currentPaid = currentPaidByTenant[tenant.id] || 0;
     const currentBalance = Math.max(expected - currentPaid, 0);
@@ -166,6 +192,7 @@ setLoading(true);
       unit: currentUnitNumberByTenant[tenant.id] || priorInvoices[0]?.units?.unit_number || unit.unit_number || "—",
       amount: totalBalance,
       periods: priorPeriodsWithBalance + (currentBalance > 0 ? 1 : 0),
+      currentOwed: currentBalance > 0,
     };
     outstandingTotal += totalBalance;
   }
@@ -179,7 +206,7 @@ setLoading(true);
   setUnitCount(landlordUnits.length);
   setTenantCount(tenantCountResult || 0);
   setOutstanding(outstandingTotal);
-  setRentExpectedTotal(rentExpected);
+  setRentExpectedTotal(rentExpected + waterExtra);
   setCollectedTotal(collected);
   setOccupiedCount(occupiedUnits.length);
   setVacantCount(landlordUnits.length - occupiedUnits.length);
@@ -284,6 +311,9 @@ return (
         ))}
       </div>
     </div>
+    {loadError && (
+      <div className="mb-6 rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-sm text-red-700">{loadError}</div>
+    )}
     {/* "Open the dashboard and understand everything in 5 seconds" - money
         and occupancy at a glance before anything else. */}
     <div className="mb-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
@@ -322,7 +352,7 @@ return (
             <div key={i} className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
               <div>
                 <p className="font-semibold text-amber-900">{t.name} — Unit {t.unit}</p>
-                <p className="text-sm text-amber-700">{t.periods > 1 ? `Owes rent for ${t.periods} months` : "Hasn't paid rent this month"}</p>
+                <p className="text-sm text-amber-700">{t.periods > 1 ? `Owes rent for ${t.periods} months` : t.currentOwed ? "Hasn't paid rent this month" : "Owes rent from a previous month"}</p>
               </div>
               <p className="text-lg font-bold text-amber-900">{formatMoney(t.amount)}</p>
             </div>
