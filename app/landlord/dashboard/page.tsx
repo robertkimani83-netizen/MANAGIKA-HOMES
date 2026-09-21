@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { normalizePhone } from "@/lib/tenant-phone";
+import { paybillLine, toPaybillInfo, type PaybillInfo } from "@/lib/paybill";
 import WeeklySummaryCard from "../WeeklySummaryCard";
 function currentPeriod() {
 const d = new Date();
@@ -31,6 +32,7 @@ const [maintenanceCount, setMaintenanceCount] = useState(0);
 const [urgentMaintenance, setUrgentMaintenance] = useState(0);
 const [complaintCount, setComplaintCount] = useState(0);
 const [loading, setLoading] = useState(true);
+const [paybillInfo, setPaybillInfo] = useState<PaybillInfo | null>(null);
 const [loadError, setLoadError] = useState<string | null>(null);
 const [trend, setTrend] = useState<{ period: string; label: string; totalDue: number; totalCollected: number; collectionRate: number | null }[]>([]);
 useEffect(() => {
@@ -236,6 +238,20 @@ async function loadTrend() {
 }
 loadTrend();
 }, []);
+useEffect(() => {
+async function loadPaybill() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return;
+  try {
+    const res = await fetch("/api/payment-settings", { headers: { Authorization: "Bearer " + data.session.access_token } });
+    if (!res.ok) return;
+    setPaybillInfo(toPaybillInfo(await res.json()));
+  } catch (e) {
+    // Payment details are optional in the WhatsApp message - without them it is sent as before.
+  }
+}
+loadPaybill();
+}, []);
 async function signOut() {
   await supabase.auth.signOut();
   router.push("/landlord/login");
@@ -247,7 +263,7 @@ const formatMoney = (amount: number) => "KSh " + amount.toLocaleString();
 function whatsappReminderLink(t: UnpaidTenant) {
   const phone = normalizePhone(t.phone);
   if (!phone) return null;
-  const message = "Hello " + t.name + ", a friendly reminder that your rent balance for Unit " + t.unit + " is KSh " + t.amount.toLocaleString() + ". Kindly pay when you can. Thank you.";
+  const message = "Hello " + t.name + ", a friendly reminder that your rent balance for Unit " + t.unit + " is KSh " + t.amount.toLocaleString() + ". Kindly pay when you can." + (paybillInfo ? " " + paybillLine(paybillInfo, t.unit) : "") + " Thank you.";
   return "https://wa.me/" + phone.replace("+", "") + "?text=" + encodeURIComponent(message);
 }
 // The menu, grouped by what the landlord is trying to do instead of one long
