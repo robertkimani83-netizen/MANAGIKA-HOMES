@@ -103,6 +103,11 @@ export type RentReminderWhatsapp = {
   unit: string;
   paybill?: string;
   account?: string;
+  // The landlord's own rules. Both approved templates say "avoid penalties"
+  // and the original one also says "by the 5th", so a template is only used
+  // when its wording is true for this landlord (see sendRentReminderWhatsapp).
+  penalties?: boolean;
+  dueDay?: number;
 };
 
 // Sends the WhatsApp rent reminder. With a Paybill it first tries the template
@@ -113,9 +118,19 @@ export async function sendRentReminderWhatsapp(
   to: string,
   r: RentReminderWhatsapp
 ): Promise<WhatsappSendResult & { withPaybill: boolean }> {
-  if (r.paybill && r.account) {
+  // Templates are fixed wording approved by Meta. Both say "avoid penalties",
+  // and the original also says "by the 5th". For a landlord whose rules differ
+  // the WhatsApp is skipped (their tenants still get the SMS, which is worded
+  // from the landlord's own settings) rather than sending something untrue.
+  const penaltiesOk = r.penalties !== false;
+  const originalOk = penaltiesOk && (r.dueDay === undefined || r.dueDay === 5);
+
+  if (penaltiesOk && r.paybill && r.account) {
     const withPay = await sendWhatsappTemplate(to, RENT_REMINDER_PAYBILL_TEMPLATE, "en", [r.name, r.amount, r.period, r.unit, r.paybill, r.account]);
     if (withPay.ok) return { ...withPay, withPaybill: true };
+  }
+  if (!originalOk) {
+    return { ok: false, error: "no WhatsApp reminder was sent: the approved WhatsApp wording mentions penalties or the 5th, which does not match this landlord's settings (SMS was sent)", withPaybill: false };
   }
   const plain = await sendWhatsappTemplate(to, "rent_reminder", "en", [r.name, r.amount, r.period, r.unit]);
   return { ...plain, withPaybill: false };
