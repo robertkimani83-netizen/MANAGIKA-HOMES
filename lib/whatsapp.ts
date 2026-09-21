@@ -96,6 +96,10 @@ export async function sendWhatsappTemplate(
 // original "rent_reminder" template.
 export const RENT_REMINDER_PAYBILL_TEMPLATE = "rent_reminder_paybill";
 
+// "Please pay to avoid penalties" with no date and no Paybill (same four
+// variables as the original). Used before the original, which names "the 5th".
+export const RENT_REMINDER_NO_DATE_TEMPLATE = "rent_reminder_no_date";
+
 export type RentReminderWhatsapp = {
   name: string;
   amount: string;
@@ -124,14 +128,21 @@ export async function sendRentReminderWhatsapp(
   // from the landlord's own settings) rather than sending something untrue.
   const penaltiesOk = r.penalties !== false;
   const originalOk = penaltiesOk && (r.dueDay === undefined || r.dueDay === 5);
+  const plainVars = [r.name, r.amount, r.period, r.unit];
 
   if (penaltiesOk && r.paybill && r.account) {
     const withPay = await sendWhatsappTemplate(to, RENT_REMINDER_PAYBILL_TEMPLATE, "en", [r.name, r.amount, r.period, r.unit, r.paybill, r.account]);
     if (withPay.ok) return { ...withPay, withPaybill: true };
   }
+  // The wording with no date is true for any due day. If it is not approved
+  // yet the original is used, but only where its "by the 5th" is true.
+  if (penaltiesOk) {
+    const noDate = await sendWhatsappTemplate(to, RENT_REMINDER_NO_DATE_TEMPLATE, "en", plainVars);
+    if (noDate.ok) return { ...noDate, withPaybill: false };
+  }
   if (!originalOk) {
     return { ok: false, error: "no WhatsApp reminder was sent: the approved WhatsApp wording mentions penalties or the 5th, which does not match this landlord's settings (SMS was sent)", withPaybill: false };
   }
-  const plain = await sendWhatsappTemplate(to, "rent_reminder", "en", [r.name, r.amount, r.period, r.unit]);
+  const plain = await sendWhatsappTemplate(to, "rent_reminder", "en", plainVars);
   return { ...plain, withPaybill: false };
 }
