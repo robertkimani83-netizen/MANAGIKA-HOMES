@@ -4,7 +4,7 @@ import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { sendRentReminderWhatsapp } from "@/lib/whatsapp";
 import { buildReminderSms } from "@/lib/reminder-sms";
-import { loadPaybillInfo } from "@/lib/paybill-server";
+import { loadReminderSettings } from "@/lib/paybill-server";
 import { paybillAccount, paybillLine } from "@/lib/paybill";
 import { nairobiPeriod } from "@/lib/period";
 
@@ -80,7 +80,7 @@ const unitNumber: string = (Array.isArray(unitRaw) ? unitRaw[0]?.unit_number : u
 
 // The landlord's Paybill (if they set one) goes into the reminder so the
 // tenant is told exactly where to pay, e.g. "Paybill 222111, Account 27833#A14".
-const paybill = await loadPaybillInfo(tenant.landlord_id);
+const { paybill, rules } = await loadReminderSettings(tenant.landlord_id);
 
 // SMS text: built here (not taken from the browser) so it is one readable SMS
 // with the payment instructions. If we cannot work out an unpaid balance or the
@@ -88,7 +88,7 @@ const paybill = await loadPaybillInfo(tenant.landlord_id);
 // added when there is a unit to build the account from.
 let smsMessage: string;
 if (balanceKnown && balance > 0 && unitNumber) {
-  smsMessage = buildReminderSms({ fullName: tenant.full_name || "", balance, unitNumber, paybill });
+  smsMessage = buildReminderSms({ fullName: tenant.full_name || "", balance, unitNumber, paybill, dueDay: rules.dueDay, penalties: rules.penalties });
 } else {
   smsMessage = paybill && unitNumber ? message + " " + paybillLine(paybill, unitNumber) : message;
 }
@@ -133,6 +133,8 @@ try {
       unit: unitNumber || "-",
       paybill: paybill && unitNumber ? paybill.paybill : undefined,
       account: paybill && unitNumber ? paybillAccount(paybill, unitNumber) : undefined,
+      penalties: rules.penalties,
+      dueDay: rules.dueDay,
     });
     whatsapp = waResult.ok ? { ok: true } : { ok: false, error: waResult.error };
   }
