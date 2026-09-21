@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { cleanAccountPrefix, cleanPaybill, paybillAccount } from "@/lib/paybill";
+import { cleanDueDay, ordinal } from "@/lib/reminder-rules";
 
 export default function PaymentSettingsPage() {
 const router = useRouter();
@@ -35,6 +36,8 @@ const [bankBranch, setBankBranch] = useState("");
 
 const [paybillNumber, setPaybillNumber] = useState("");
 const [paybillAccountPrefix, setPaybillAccountPrefix] = useState("");
+const [dueDay, setDueDay] = useState("5");
+const [penalties, setPenalties] = useState(true);
 
 useEffect(() => {
 async function init() {
@@ -65,6 +68,8 @@ async function init() {
   setBankBranch(settings.bank_branch || "");
   setPaybillNumber(settings.paybill_number || "");
   setPaybillAccountPrefix(settings.paybill_account || "");
+  setDueDay(String(settings.reminder_due_day ?? 5));
+  setPenalties(settings.reminder_penalties !== false);
 
   setLoading(false);
 }
@@ -96,6 +101,8 @@ try {
       bank_branch: bankBranch,
       paybill_number: paybillNumber,
       paybill_account: paybillAccountPrefix,
+      reminder_due_day: dueDay,
+      reminder_penalties: penalties,
     }),
   });
   const result = await res.json();
@@ -262,6 +269,30 @@ return (
       {paybillNumber.trim() !== "" && !cleanPaybill(paybillNumber) && (
         <p className="mt-4 text-sm text-red-600">A Paybill number is 5 to 7 digits, like 222111.</p>
       )}
+    </div>
+
+    <div className="mb-6 rounded-xl border bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-semibold text-slate-900">Rent reminder rules</h3>
+      <p className="mt-1 text-sm text-slate-500">Set the rules your tenants&rsquo; rent reminders talk about, so the message matches how you really run your houses.</p>
+
+      <div className="mt-5 max-w-xs">
+        <label className="mb-2 block text-sm font-medium text-slate-700">Rent is due on day (1 to 28) of each month</label>
+        <input type="text" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value)} placeholder="e.g. 5" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500" />
+      </div>
+      {dueDay.trim() !== "" && cleanDueDay(dueDay) === null && (
+        <p className="mt-2 text-sm text-red-600">Please enter a day from 1 to 28, like 5.</p>
+      )}
+
+      <label className="mt-5 flex items-start gap-3">
+        <input type="checkbox" checked={penalties} onChange={(e) => setPenalties(e.target.checked)} className="mt-1 h-4 w-4" />
+        <span className="text-sm text-slate-700">Late rent has penalties. Reminders will say &ldquo;avoid penalties&rdquo;. Untick this if you do not charge penalties.</span>
+      </label>
+
+      <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+        <p className="font-semibold">Your SMS reminders will say:</p>
+        <p className="mt-1">Rent is due by the {ordinal(cleanDueDay(dueDay) ?? 5)}. {penalties ? "Please pay on time to avoid penalties." : "Please pay on time."}</p>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">WhatsApp reminders use wording approved by Meta, which mentions penalties (and, when no Paybill is set, the 5th). If that does not match your settings, tenants get the SMS only, so nobody is told something untrue.</p>
     </div>
 
     <button onClick={save} disabled={saving} className="rounded-lg bg-emerald-600 px-6 py-3 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
