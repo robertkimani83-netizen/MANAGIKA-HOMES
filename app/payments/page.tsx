@@ -74,6 +74,18 @@ const [unmatchedCount, setUnmatchedCount] = useState<number | null>(null);
 
 const period = currentPeriod();
 
+// Lets the dashboard's "Record Payment" button land here with the form
+// already open (/payments?record=1).
+useEffect(() => {
+if (new URLSearchParams(window.location.search).get("record") === "1") setShowForm(true);
+}, []);
+
+// "Send Reminders" on the dashboard links to #rent-status.
+useEffect(() => {
+if (loading || window.location.hash !== "#rent-status") return;
+document.getElementById("rent-status")?.scrollIntoView({ behavior: "smooth" });
+}, [loading]);
+
 useEffect(() => {
 async function init() {
 const { data } = await supabase.auth.getUser();
@@ -427,6 +439,7 @@ return (
             {unmatchedCount > 0 && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-sm font-semibold text-red-700">{unmatchedCount}</span>}
           </a>
         )}
+        <a href="/landlord/reports" className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition">📊 Monthly Report</a>
         <button onClick={exportLedger} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition">⬇ Export CSV</button>
         <button onClick={() => setShowForm(true)} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Record Payment</button>
       </div>
@@ -561,7 +574,7 @@ return (
     {loadError && (
       <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>
     )}
-    <div className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
+    <div id="rent-status" className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
       <div className="border-b px-6 py-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-xl font-semibold">Rent Status — {period}</h3>
