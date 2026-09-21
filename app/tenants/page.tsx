@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { samePhone, toLocalPhone } from "@/lib/tenant-phone";
+import { downloadCsv, todayForFileName } from "@/lib/csv";
 
 type Unit = { id: string; unit_number: string; base_rent: number; status: string; property_id: string; properties: { property_name: string } | null };
 
@@ -325,6 +326,14 @@ const totalTenants = tenants.length;
 const activeTenants = tenants.filter((tenant) => tenant.status === "active").length;
 const totalRent = tenants.reduce((sum, tenant) => sum + (Number(tenant.units?.base_rent) || 0), 0);
 
+function exportTenantsCsv() {
+  downloadCsv(
+    "managika-tenants-" + todayForFileName() + ".csv",
+    ["Tenant", "Phone", "Email", "Property", "Unit", "Rent (KSh)", "Status"],
+    tenants.map((tenant) => [tenant.full_name, tenant.phone_number || "", tenant.email || "", tenant.units?.properties?.property_name || "", tenant.units?.unit_number || "Unassigned", tenant.units ? Number(tenant.units.base_rent) || 0 : "", tenant.status])
+  );
+}
+
 return (
 <main className="min-h-screen city-skyline-page">
 <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
@@ -348,6 +357,7 @@ return (
         </div>
       </div>
       <div className="flex gap-3">
+        <button onClick={exportTenantsCsv} disabled={loading || tenants.length === 0} className="px-5 py-3 rounded-lg border-2 border-slate-300 bg-white text-slate-700 font-medium hover:bg-slate-50 transition disabled:opacity-40">⬇ CSV</button>
         <button onClick={() => setShowBulkForm(true)} className="px-5 py-3 rounded-lg border-2 border-slate-900 bg-white text-slate-900 font-medium hover:-translate-y-0.5 hover:bg-slate-50 transition">📋 Paste a List</button>
         <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Tenant</button>
       </div>
@@ -511,6 +521,7 @@ return (
                   <td className="px-6 py-4">{tenant.units?.unit_number || "Unassigned"}</td>
                   <td className="px-6 py-4">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</td>
                   <td className="px-6 py-4 space-x-3 whitespace-nowrap">
+                    <a href={"/tenants/" + tenant.id + "/statement"} className="text-sm font-medium text-slate-700 hover:underline">Statement</a>
                     <button onClick={() => openEdit(tenant)} className="text-sm font-medium text-slate-700 hover:underline">Edit</button>
                     <button onClick={() => deleteTenant(tenant)} className="text-sm font-medium text-red-600 hover:underline">Remove</button>
                   </td>
