@@ -33,6 +33,7 @@ const [urgentMaintenance, setUrgentMaintenance] = useState(0);
 const [complaintCount, setComplaintCount] = useState(0);
 const [loading, setLoading] = useState(true);
 const [paybillInfo, setPaybillInfo] = useState<PaybillInfo | null>(null);
+const [penaltiesOn, setPenaltiesOn] = useState(true);
 const [loadError, setLoadError] = useState<string | null>(null);
 const [trend, setTrend] = useState<{ period: string; label: string; totalDue: number; totalCollected: number; collectionRate: number | null }[]>([]);
 useEffect(() => {
@@ -245,7 +246,9 @@ async function loadPaybill() {
   try {
     const res = await fetch("/api/payment-settings", { headers: { Authorization: "Bearer " + data.session.access_token } });
     if (!res.ok) return;
-    setPaybillInfo(toPaybillInfo(await res.json()));
+    const settings = await res.json();
+    setPaybillInfo(toPaybillInfo(settings));
+    setPenaltiesOn(settings.reminder_penalties !== false);
   } catch (e) {
     // Payment details are optional in the WhatsApp message - without them it is sent as before.
   }
@@ -263,7 +266,7 @@ const formatMoney = (amount: number) => "KSh " + amount.toLocaleString();
 function whatsappReminderLink(t: UnpaidTenant) {
   const phone = normalizePhone(t.phone);
   if (!phone) return null;
-  const message = "Hello " + t.name + ", a friendly reminder that your rent balance for Unit " + t.unit + " is KSh " + t.amount.toLocaleString() + ". Please pay before the due date to avoid penalties." + (paybillInfo ? " " + paybillLine(paybillInfo, t.unit) : "") + " Thank you.";
+  const message = "Hello " + t.name + ", a friendly reminder that your rent balance for Unit " + t.unit + " is KSh " + t.amount.toLocaleString() + ". Please pay before the due date" + (penaltiesOn ? " to avoid penalties." : ".") + (paybillInfo ? " " + paybillLine(paybillInfo, t.unit) : "") + " Thank you.";
   return "https://wa.me/" + phone.replace("+", "") + "?text=" + encodeURIComponent(message);
 }
 // The menu, grouped by what the landlord is trying to do instead of one long
