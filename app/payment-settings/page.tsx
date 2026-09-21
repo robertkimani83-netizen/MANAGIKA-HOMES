@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { cleanAccountPrefix, cleanPaybill, paybillAccount } from "@/lib/paybill";
-import { cleanDueDay, ordinal } from "@/lib/reminder-rules";
+import { cleanDueDay } from "@/lib/reminder-rules";
 
 export default function PaymentSettingsPage() {
 const router = useRouter();
@@ -276,7 +276,7 @@ return (
       <p className="mt-1 text-sm text-slate-500">Set the rules your tenants&rsquo; rent reminders talk about, so the message matches how you really run your houses.</p>
 
       <div className="mt-5 max-w-xs">
-        <label className="mb-2 block text-sm font-medium text-slate-700">Rent is due on day (1 to 28) of each month</label>
+        <label className="mb-2 block text-sm font-medium text-slate-700">Rent due day of the month (1 to 28) - used for invoice due dates, not shown in reminders</label>
         <input type="text" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value)} placeholder="e.g. 5" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500" />
       </div>
       {dueDay.trim() !== "" && cleanDueDay(dueDay) === null && (
@@ -290,9 +290,9 @@ return (
 
       <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
         <p className="font-semibold">Your SMS reminders will say:</p>
-        <p className="mt-1">Rent is due by the {ordinal(cleanDueDay(dueDay) ?? 5)}. {penalties ? "Please pay on time to avoid penalties." : "Please pay on time."}</p>
+        <p className="mt-1">Your September rent of KSh 5,000 for Unit A14 is due.{penalties ? " Please pay to avoid penalties." : ""}</p>
       </div>
-      <p className="mt-2 text-xs text-slate-500">WhatsApp reminders use wording approved by Meta, which mentions penalties (and, when no Paybill is set, the 5th). If that does not match your settings, tenants get the SMS only, so nobody is told something untrue.</p>
+      <p className="mt-2 text-xs text-slate-500">SMS reminders never name a date. WhatsApp reminders use wording approved by Meta, which says "avoid penalties" (with a Paybill set, it names no date either). If you turn penalties off, tenants get the SMS only, so nobody is told something untrue.</p>
     </div>
 
     <button onClick={save} disabled={saving} className="rounded-lg bg-emerald-600 px-6 py-3 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
