@@ -18,6 +18,24 @@ if (digits.startsWith("7") || digits.startsWith("1")) return "+254" + digits;
 return "+" + digits;
 }
 
+// One readable SMS per tenant. A single SMS holds 160 characters; anything
+// longer is split into several parts and each part is charged, so this builds
+// the full friendly wording when it fits and drops the penalty sentence (then
+// shortens further) when a long name or unit number would push it over.
+function buildReminderSms(fullName: string, balance: number, period: string, unitNumber: string) {
+  const first = (fullName || "").trim().split(/\s+/)[0] || "there";
+  const name = first.length > 14 ? first.slice(0, 14) : first;
+  const month = period.split(" ")[0];
+  const amount = "KSh " + Math.round(balance).toLocaleString("en-US");
+  const unit = "Unit " + unitNumber;
+  const link = "managikahomes.co.ke/tenant/login";
+  const full = "Hello " + name + ", your " + month + " rent of " + amount + " for " + unit + " is due by the 5th. Please pay on time to avoid penalties. Details: " + link;
+  if (full.length <= 160) return full;
+  const withoutPenalty = "Hello " + name + ", your " + month + " rent of " + amount + " for " + unit + " is due by the 5th. Details: " + link;
+  if (withoutPenalty.length <= 160) return withoutPenalty;
+  return ("Hi " + name + ", " + amount + " rent for " + unit + " is due by the 5th. Pay: " + link).slice(0, 160);
+}
+
 export async function GET(request: Request) {
 const authHeader = request.headers.get("authorization") || "";
 const cronSecret = process.env.CRON_SECRET || "";
@@ -114,16 +132,7 @@ for (const tenant of (tenants || []) as any[]) {
     continue;
   }
 
-  const message =
-    "Hi " +
-    tenant.full_name +
-    ", your rent of KSh " +
-    balance.toLocaleString() +
-    " for " +
-    period +
-    " (Unit " +
-    unit.unit_number +
-    ") is now due. Kindly pay by the 5th of the month to avoid penalties. View & pay: managikahomes.co.ke/tenant/login - Managika Homes";
+  const message = buildReminderSms(tenant.full_name, balance, period, unit.unit_number);
 
   try {
     await sms.send({ to: [toKenyanFormat(tenant.phone_number)], message: message, ...(senderId ? { from: senderId } : {}) });

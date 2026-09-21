@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { samePhone, toLocalPhone } from "@/lib/tenant-phone";
 
 type Unit = { id: string; unit_number: string; base_rent: number; status: string; property_id: string; properties: { property_name: string } | null };
 
@@ -128,15 +129,26 @@ loadVacantUnits(landlordId);
 loadTenants(landlordId);
 }, [landlordId]);
 
+// Finds another of this landlord's tenants who already has this phone number
+// (in any format: 0712..., +254712..., 0712 345 678). Two tenants sharing a
+// number confuse tenant login, because the number can only lead to one of them.
+function findPhoneOwner(phoneText: string, exceptTenantId?: string) {
+  return tenants.find((t) => t.id !== exceptTenantId && !!t.phone_number && samePhone(t.phone_number, phoneText)) || null;
+}
+
 async function addTenant() {
 if (!landlordId) return;
 if (!fullName.trim()) { alert("Please enter the tenant's name."); return; }
 if (!phone.trim()) { alert("Please enter the tenant's phone number."); return; }
+const cleanPhone = toLocalPhone(phone);
+if (!cleanPhone) { alert("That phone number doesn't look right. Please use a Kenyan number like 0712345678 or 0110123456."); return; }
+const phoneOwner = findPhoneOwner(cleanPhone);
+if (phoneOwner && !window.confirm(phoneOwner.full_name + " already has the number " + cleanPhone + ". Two tenants with the same number can't both log in with it. Save anyway?")) return;
 if (unitId) {
 const selectedUnit = vacantUnits.find((unit) => unit.id === unitId);
 if (!selectedUnit) { alert("Invalid unit selected."); return; }
 }
-const { error: tenantError } = await supabase.from("tenants").insert({ landlord_id: landlordId, full_name: fullName.trim(), phone_number: phone.trim(), email: email.trim() || null, unit_id: unitId || null, status: "active", joined_at: new Date().toISOString() });
+const { error: tenantError } = await supabase.from("tenants").insert({ landlord_id: landlordId, full_name: fullName.trim(), phone_number: cleanPhone, email: email.trim() || null, unit_id: unitId || null, status: "active", joined_at: new Date().toISOString() });
 if (tenantError) { alert("Error saving tenant: " + tenantError.message); return; }
 if (unitId) {
 const { error: unitError } = await supabase.from("units").update({ status: "occupied" }).eq("id", unitId);
@@ -157,11 +169,23 @@ if (!landlordId) return;
 const lines = bulkText.split("\n");
 const parsed: { name: string; phone: string }[] = [];
 const skipped: string[] = [];
+const duplicateLines: string[] = [];
+const seenPhones = new Set<string>();
+for (const t of tenants) {
+  const existing = t.phone_number ? toLocalPhone(t.phone_number) : null;
+  if (existing) seenPhones.add(existing);
+}
 for (const line of lines) {
 if (!line.trim()) continue;
 const result = parseBulkLine(line);
-if (result) parsed.push(result);
-else skipped.push(line.trim());
+const cleanPhone = result ? toLocalPhone(result.phone) : null;
+if (!result || !cleanPhone) { skipped.push(line.trim()); continue; }
+if (seenPhones.has(cleanPhone)) { duplicateLines.push(line.trim()); continue; }
+seenPhones.add(cleanPhone);
+parsed.push({ name: result.name, phone: cleanPhone });
+}
+if (duplicateLines.length > 0) {
+  alert(duplicateLines.length + " line" + (duplicateLines.length === 1 ? " was" : "s were") + " left out because that phone number is already on your tenant list (or is repeated in your list):\n\n" + duplicateLines.slice(0, 10).join("\n") + (duplicateLines.length > 10 ? "\n..." : ""));
 }
 if (parsed.length === 0) {
 setBulkResult({ added: 0, skipped });
@@ -270,13 +294,23 @@ setEditError(null);
 async function saveEdit() {
 if (!landlordId || !editingTenant) return;
 if (!editName.trim()) { setEditError("Please enter the tenant's name."); return; }
+let cleanEditPhone: string | null = null;
+if (editPhone.trim() && editPhone.trim() === (editingTenant.phone_number || "").trim()) {
+  // Phone untouched - keep whatever is saved so a name/email fix is never blocked.
+  cleanEditPhone = editPhone.trim();
+} else if (editPhone.trim()) {
+  cleanEditPhone = toLocalPhone(editPhone);
+  if (!cleanEditPhone) { setEditError("That phone number doesn't look right. Please use a Kenyan number like 0712345678 or 0110123456."); return; }
+  const phoneOwner = findPhoneOwner(cleanEditPhone, editingTenant.id);
+  if (phoneOwner && !window.confirm(phoneOwner.full_name + " already has the number " + cleanEditPhone + ". Two tenants with the same number can't both log in with it. Save anyway?")) return;
+}
 setEditSaving(true);
 setEditError(null);
 const { error } = await supabase
 .from("tenants")
 .update({
 full_name: editName.trim(),
-phone_number: editPhone.trim() || null,
+phone_number: cleanEditPhone,
 email: editEmail.trim() || null,
 })
 .eq("id", editingTenant.id)

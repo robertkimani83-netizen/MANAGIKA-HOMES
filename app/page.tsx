@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { toLocalPhone } from "@/lib/tenant-phone";
 
 // The site's homepage - a single landlord-facing page: what Managika Homes
 // is, why it's safe to trust with rent money, pricing, and - right here on
@@ -110,6 +111,11 @@ export default function Home() {
       setError("Please fill in all fields.");
       return;
     }
+    const cleanPhone = toLocalPhone(phone);
+    if (!cleanPhone) {
+      setError("Please enter a valid Kenyan phone number, like 0712345678 or 0110123456.");
+      return;
+    }
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;
@@ -135,7 +141,7 @@ export default function Home() {
       return;
     }
 
-    await supabase.from("landlords").insert({ id: data.user.id, full_name: fullName.trim(), email: email.trim(), phone_number: phone.trim() });
+    await supabase.from("landlords").insert({ id: data.user.id, full_name: fullName.trim(), email: email.trim(), phone_number: cleanPhone });
 
     if (!data.session) {
       setSubmitting(false);
