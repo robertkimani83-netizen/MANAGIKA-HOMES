@@ -148,7 +148,7 @@ export default function TenantReceiptPage() {
           {rows.map(([label, value]) => (
             <div key={label} className="flex justify-between gap-4 py-3">
               <dt className="text-gray-500">{label}</dt>
-              <dd className="text-right font-medium capitalize text-gray-900 break-words">{value}</dd>
+              <dd className={"text-right font-medium text-gray-900 break-words " + (lang === "en" ? "capitalize" : "first-letter:uppercase")}>{value}</dd>
             </div>
           ))}
         </dl>
