@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { cleanAccountPrefix, cleanPaybill, paybillAccount } from "@/lib/paybill";
 
 export default function PaymentSettingsPage() {
 const router = useRouter();
@@ -32,6 +33,9 @@ const [bankAccountName, setBankAccountName] = useState("");
 const [bankAccountNumber, setBankAccountNumber] = useState("");
 const [bankBranch, setBankBranch] = useState("");
 
+const [paybillNumber, setPaybillNumber] = useState("");
+const [paybillAccountPrefix, setPaybillAccountPrefix] = useState("");
+
 useEffect(() => {
 async function init() {
   const { data } = await supabase.auth.getUser();
@@ -59,6 +63,8 @@ async function init() {
   setBankAccountName(settings.bank_account_name || "");
   setBankAccountNumber(settings.bank_account_number || "");
   setBankBranch(settings.bank_branch || "");
+  setPaybillNumber(settings.paybill_number || "");
+  setPaybillAccountPrefix(settings.paybill_account || "");
 
   setLoading(false);
 }
@@ -88,6 +94,8 @@ try {
       bank_account_name: bankAccountName,
       bank_account_number: bankAccountNumber,
       bank_branch: bankBranch,
+      paybill_number: paybillNumber,
+      paybill_account: paybillAccountPrefix,
     }),
   });
   const result = await res.json();
@@ -226,6 +234,33 @@ return (
             <input type="text" value={bankBranch} onChange={(e) => setBankBranch(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500" />
           </div>
         </div>
+      )}
+    </div>
+
+    <div className="mb-6 rounded-xl border bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-semibold text-slate-900">Paybill for rent reminders</h3>
+      <p className="mt-1 text-sm text-slate-500">If your tenants pay to a Paybill, enter it here. Every rent reminder (SMS and WhatsApp) and every tenant&rsquo;s dashboard will then tell them exactly where to pay. Leave it empty to send reminders without payment details.</p>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-700">Paybill number</label>
+          <input type="text" inputMode="numeric" value={paybillNumber} onChange={(e) => setPaybillNumber(e.target.value)} placeholder="e.g. 222111" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500" />
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-700">Account number (the part before the #)</label>
+          <input type="text" value={paybillAccountPrefix} onChange={(e) => setPaybillAccountPrefix(e.target.value)} placeholder="e.g. 27833" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500" />
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">Each tenant&rsquo;s house number is added after the # so you can tell who paid. Leave the account empty to use just the house number.</p>
+
+      {cleanPaybill(paybillNumber) && (
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <p className="font-semibold">A tenant in house A14 will be told to pay:</p>
+          <p className="mt-1">Paybill <strong>{cleanPaybill(paybillNumber)}</strong>, Account <strong>{paybillAccount({ paybill: cleanPaybill(paybillNumber), accountPrefix: cleanAccountPrefix(paybillAccountPrefix) }, "A14")}</strong></p>
+        </div>
+      )}
+      {paybillNumber.trim() !== "" && !cleanPaybill(paybillNumber) && (
+        <p className="mt-4 text-sm text-red-600">A Paybill number is 5 to 7 digits, like 222111.</p>
       )}
     </div>
 
