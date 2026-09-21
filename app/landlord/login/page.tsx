@@ -3,6 +3,7 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { toLocalPhone } from "@/lib/tenant-phone";
 
 const PLAN_NAMES: Record<string, string> = {
   starter: "Starter",
@@ -54,6 +55,11 @@ function LandlordLoginInner() {
       setError("Please fill in all fields.");
       return;
     }
+    const cleanPhone = toLocalPhone(phone);
+    if (!cleanPhone) {
+      setError("Please enter a valid Kenyan phone number, like 0712345678 or 0110123456.");
+      return;
+    }
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;
@@ -76,7 +82,7 @@ function LandlordLoginInner() {
         id: data.user.id,
         full_name: fullName.trim(),
         email: email.trim(),
-        phone_number: phone.trim(),
+        phone_number: cleanPhone,
       });
     }
     setLoading(false);
