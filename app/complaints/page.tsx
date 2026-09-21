@@ -8,6 +8,8 @@ export default function ComplaintsPage() {
 const router = useRouter();
 const [loading, setLoading] = useState(true);
 const [complaints, setComplaints] = useState<any[]>([]);
+const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+const [photoLoadingId, setPhotoLoadingId] = useState<string | null>(null);
 
 useEffect(() => {
 async function init() {
@@ -31,7 +33,7 @@ if (!landlordId) { setLoading(false); return; }
 // landlord's tenant complaints (private text) on this page.
 const { data, error } = await supabase
 .from("complaints")
-.select("id, description, status, created_at, tenants(full_name), units!inner(unit_number, properties!inner(landlord_id))")
+.select("id, description, status, created_at, photo_path, tenants(full_name), units!inner(unit_number, properties!inner(landlord_id))")
 .eq("units.properties.landlord_id", landlordId)
 .order("created_at", { ascending: false });
 if (!error && data) setComplaints(data as any[]);
@@ -49,6 +51,21 @@ const res = await fetch("/api/complaints/" + id, {
 const result = await res.json();
 if (!res.ok) { alert("Error updating status: " + (result.error || "unknown error")); return; }
 loadComplaints();
+}
+
+// The photo is in a private bucket, so ask the server for a short-lived link.
+async function viewPhoto(id: string) {
+setPhotoLoadingId(id);
+try {
+const { data: sessionData } = await supabase.auth.getSession();
+const token = sessionData.session?.access_token || "";
+const res = await fetch("/api/complaints/" + id + "/photo", { headers: { Authorization: "Bearer " + token } });
+const result = await res.json().catch(() => ({}));
+if (!res.ok || !result.url) { alert("Could not open the photo: " + (result.error || "unknown error")); return; }
+setPhotoUrl(result.url);
+} finally {
+setPhotoLoadingId(null);
+}
 }
 
 const statusColor: Record<string, string> = {
@@ -116,7 +133,7 @@ return (
                 <tr key={c.id} className="border-t align-top">
                   <td className="px-6 py-4">{c.tenants?.full_name || "—"}</td>
                   <td className="px-6 py-4">{c.units?.unit_number || "—"}</td>
-                  <td className="px-6 py-4">{c.description}</td>
+                  <td className="px-6 py-4">{c.description}{c.photo_path && <button onClick={() => viewPhoto(c.id)} disabled={photoLoadingId === c.id} className="mt-2 block rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">{photoLoadingId === c.id ? "Opening..." : "📷 View photo"}</button>}</td>
                   <td className="px-6 py-4">
                     <select value={c.status} onChange={(e) => updateStatus(c.id, e.target.value)} className={"rounded-lg px-3 py-1 text-sm font-medium capitalize " + (statusColor[c.status] || "bg-slate-100 text-slate-700")}>
                       <option value="submitted">Submitted</option>
@@ -132,6 +149,16 @@ return (
       </div>
     </div>
   </section>
+
+  {photoUrl && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPhotoUrl(null)}>
+      <div className="max-h-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={photoUrl} alt="Photo attached to the complaint" className="max-h-[80vh] rounded-lg bg-white object-contain" />
+        <button onClick={() => setPhotoUrl(null)} className="mt-3 w-full rounded-lg bg-white px-4 py-2 font-medium text-slate-900">Close</button>
+      </div>
+    </div>
+  )}
 
   <footer className="border-t bg-white mt-10">
     <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-slate-500">© 2026 Managika Homes. Property management made simple.</div>
