@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { downloadCsv, todayForFileName } from "@/lib/csv";
 
 // Not double-entry accounting - a landlord asked "can you at least show me
 // income vs. expenses, not just money coming in" and this is the honest,
@@ -198,7 +199,23 @@ export default function ExpensesPage() {
         </div>
 
         <div className="bg-white rounded-xl border shadow-sm p-6">
-          <h3 className="text-xl font-semibold mb-4">All expenses</h3>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h3 className="text-xl font-semibold">All expenses</h3>
+            {expenses.length > 0 && (
+              <button
+                onClick={() =>
+                  downloadCsv(
+                    "managika-expenses-" + todayForFileName() + ".csv",
+                    ["Date", "Property", "Category", "Description", "Amount (KSh)"],
+                    expenses.map((e) => [e.expense_date, e.properties?.property_name || "All", e.category, e.description || "", Number(e.amount) || 0])
+                  )
+                }
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                ⬇ Download CSV
+              </button>
+            )}
+          </div>
           {expenses.length === 0 ? (
             <p className="text-gray-500">No expenses logged yet.</p>
           ) : (

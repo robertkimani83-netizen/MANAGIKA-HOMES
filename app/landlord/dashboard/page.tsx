@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { normalizePhone } from "@/lib/tenant-phone";
 import { paybillLine, toPaybillInfo, type PaybillInfo } from "@/lib/paybill";
 import WeeklySummaryCard from "../WeeklySummaryCard";
+import LateRentCard from "../LateRentCard";
+import LeasesEndingCard from "../LeasesEndingCard";
 function currentPeriod() {
 const d = new Date();
 const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -274,6 +276,7 @@ function whatsappReminderLink(t: UnpaidTenant) {
 const menuGroups: { title: string; items: { href: string; label: string; external?: boolean; extraClass?: string }[] }[] = [
   { title: "Money", items: [
     { href: "/payments", label: "💰 Payments" },
+    { href: "/arrears", label: "⏳ Late Rent" },
     { href: "/expenses", label: "💸 Expenses" },
     { href: "/landlord/reports", label: "📊 Monthly Report" },
     { href: "/payment-settings", label: "💳 Payment Settings" },
@@ -414,6 +417,10 @@ return (
     </div>
 
     <WeeklySummaryCard />
+
+    <LateRentCard />
+
+    <LeasesEndingCard />
 
     {!loading && (unpaidTenants.length > 0 || vacantCount > 0 || maintenanceCount > 0 || complaintCount > 0) && (
       <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

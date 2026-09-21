@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { trPeriod, useTenantLang } from "@/lib/tenant-i18n";
+import { compressImageToJpeg } from "@/lib/image-compress";
 
 // Visual "how far along is this repair" tracker, matching the one on
 // the landlord's Maintenance page - submitted -> assigned -> in
@@ -69,6 +70,8 @@ export default function TenantDashboard() {
   const [description, setDescription] = useState("");
   const [urgency, setUrgency] = useState("normal");
   const [complaintText, setComplaintText] = useState("");
+  const [complaintPhoto, setComplaintPhoto] = useState<File | null>(null);
+  const [submittingComplaint, setSubmittingComplaint] = useState(false);
   const [payingBalance, setPayingBalance] = useState(false);
   const [reportingPayment, setReportingPayment] = useState(false);
   const [paymentInfo, setPaymentInfo] = useState<any>({ mpesa_enabled: false, bank_enabled: false, has_pending_claim: false });
@@ -105,7 +108,7 @@ export default function TenantDashboard() {
     const { data: maintenanceRows } = await supabase.from("maintenance_requests").select("id, category, title, description, urgency, status, technician_name, created_at").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
     setMaintenance(maintenanceRows || []);
 
-    const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
+    const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at, photo_path").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
     setComplaints(complaintRows || []);
 
     // Most recent payment, for the "My Home" summary card.
@@ -193,14 +196,37 @@ export default function TenantDashboard() {
   }
 
   async function submitComplaint() {
-  if (!tenant) return;
+  if (!tenant || submittingComplaint) return;
   if (!tenant.unit_id) { alert(tr("You don't have a unit assigned yet, so your landlord would not see this. Please ask your landlord to assign your unit first.")); return; }
   if (!complaintText.trim()) { alert(tr("Please describe your complaint.")); return; }
-  const { error } = await supabase.from("complaints").insert({ tenant_id: tenant.id, unit_id: tenant.unit_id, description: complaintText.trim(), status: "submitted" });
+  setSubmittingComplaint(true);
+  try {
+  // The photo (if any) is shrunk on the phone, then stored privately; only its
+  // path is saved on the complaint.
+  let photoPath: string | null = null;
+  if (complaintPhoto) {
+    try {
+      const jpeg = await compressImageToJpeg(complaintPhoto);
+      const form = new FormData();
+      form.append("file", jpeg, "photo.jpg");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uploadRes = await fetch("/api/complaints/photo", { method: "POST", headers: { Authorization: "Bearer " + (sessionData.session?.access_token || "") }, body: form });
+      const uploadResult = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !uploadResult.path) { alert(tr("Could not attach the photo: ") + (uploadResult.error || "unknown error")); return; }
+      photoPath = uploadResult.path;
+    } catch (e) {
+      alert(tr("Could not attach the photo: ") + tr("Please choose a photo file."));
+      return;
+    }
+  }
+  const { error } = await supabase.from("complaints").insert({ tenant_id: tenant.id, unit_id: tenant.unit_id, description: complaintText.trim(), status: "submitted", photo_path: photoPath });
   if (error) { alert(tr("Error submitting complaint: ") + error.message); return; }
-  setComplaintText(""); setShowComplaintForm(false);
-  const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at").eq("tenant_id", tenant.id).order("created_at", { ascending: false });
+  setComplaintText(""); setComplaintPhoto(null); setShowComplaintForm(false);
+  const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at, photo_path").eq("tenant_id", tenant.id).order("created_at", { ascending: false });
   setComplaints(complaintRows || []);
+  } finally {
+  setSubmittingComplaint(false);
+  }
   }
 
   async function payWithMpesa() {
@@ -271,6 +297,7 @@ export default function TenantDashboard() {
   <div className="flex items-center gap-3">
   <a href="/tenant/ai-assistant" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("🤖 AI Assistant")}</a>
   <a href="/tenant/lease" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("📄 My Lease")}</a>
+  <a href="/tenant/statement" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("🧾 My Statement")}</a>
   <a href="https://wa.me/97431502816?text=Hi%20Managika%20Homes%2C%20I%27m%20a%20tenant%20and%20need%20help%20with%3A%20" target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("💬 Chat on WhatsApp")}</a>
   <a href="/download-app" className="mh-hide-in-app px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("📲 Get App")}</a>
   <div className="flex gap-1 text-xs font-semibold">
@@ -530,9 +557,14 @@ export default function TenantDashboard() {
           <div className="p-6 border-b bg-gray-50">
             <label className="mb-2 block text-sm font-medium text-gray-700">{tr("Describe your complaint")}</label>
             <textarea value={complaintText} onChange={(e) => setComplaintText(e.target.value)} rows={3} placeholder={tr("e.g. Noisy neighbor at night")} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            <label className="mt-4 mb-2 block text-sm font-medium text-gray-700">{tr("Photo (optional)")}</label>
+            <div className="flex flex-wrap items-center gap-3">
+              <input type="file" accept="image/*" onChange={(e) => setComplaintPhoto(e.target.files?.[0] || null)} className="text-sm text-gray-600" />
+              {complaintPhoto && <button type="button" onClick={() => setComplaintPhoto(null)} className="text-sm text-gray-600 underline">{tr("Remove photo")}</button>}
+            </div>
             <div className="mt-4 flex gap-3">
-              <button onClick={submitComplaint} className="rounded-lg bg-black px-5 py-3 font-medium text-white">{tr("Submit Complaint")}</button>
-              <button onClick={() => setShowComplaintForm(false)} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700">{tr("Cancel")}</button>
+              <button onClick={submitComplaint} disabled={submittingComplaint} className="rounded-lg bg-black px-5 py-3 font-medium text-white disabled:opacity-50">{submittingComplaint ? tr("Submitting...") : tr("Submit Complaint")}</button>
+              <button onClick={() => { setShowComplaintForm(false); setComplaintPhoto(null); }} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700">{tr("Cancel")}</button>
             </div>
           </div>
         )}
@@ -542,7 +574,7 @@ export default function TenantDashboard() {
             <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Complaint")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Status")}</th></tr></thead>
             <tbody>
               {complaints.length === 0 ? (<tr><td colSpan={2} className="px-6 py-10 text-center text-gray-500">{tr("No complaints yet.")}</td></tr>) : (
-                complaints.map((c) => (<tr key={c.id} className="border-t"><td className="px-6 py-4">{c.description}</td><td className="px-6 py-4 capitalize">{tr(c.status.replace("_", " "))}</td></tr>))
+                complaints.map((c) => (<tr key={c.id} className="border-t"><td className="px-6 py-4">{c.description}{c.photo_path && <span className="ml-2 text-xs text-gray-500">{tr("📷 Photo attached")}</span>}</td><td className="px-6 py-4 capitalize">{tr(c.status.replace("_", " "))}</td></tr>))
               )}
             </tbody>
           </table>

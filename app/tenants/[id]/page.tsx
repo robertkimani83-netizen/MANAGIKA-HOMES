@@ -270,6 +270,7 @@ return (
     <div className="mb-8">
       <h2 className="text-3xl font-bold text-gray-900">{tenant.full_name}</h2>
       <p className="text-gray-500 mt-1">{tenant.units ? tenant.units.properties?.property_name + " — Unit " + tenant.units.unit_number : "No unit assigned"}</p>
+      <a href={"/tenants/" + tenant.id + "/statement"} className="mt-3 inline-block rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">🧾 Account Statement</a>
     </div>
 
     <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
