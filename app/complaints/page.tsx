@@ -31,7 +31,7 @@ if (!landlordId) { setLoading(false); return; }
 // landlord's tenant complaints (private text) on this page.
 const { data, error } = await supabase
 .from("complaints")
-.select("id, description, source, status, created_at, tenants(full_name), units!inner(unit_number, properties!inner(landlord_id))")
+.select("id, description, status, created_at, tenants(full_name), units!inner(unit_number, properties!inner(landlord_id))")
 .eq("units.properties.landlord_id", landlordId)
 .order("created_at", { ascending: false });
 if (!error && data) setComplaints(data as any[]);
@@ -116,7 +116,7 @@ return (
                 <tr key={c.id} className="border-t align-top">
                   <td className="px-6 py-4">{c.tenants?.full_name || "—"}</td>
                   <td className="px-6 py-4">{c.units?.unit_number || "—"}</td>
-                  <td className="px-6 py-4">{c.description}{c.source && <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">via {c.source === "whatsapp" ? "WhatsApp" : "SMS"}</span>}</td>
+                  <td className="px-6 py-4">{c.description}</td>
                   <td className="px-6 py-4">
                     <select value={c.status} onChange={(e) => updateStatus(c.id, e.target.value)} className={"rounded-lg px-3 py-1 text-sm font-medium capitalize " + (statusColor[c.status] || "bg-slate-100 text-slate-700")}>
                       <option value="submitted">Submitted</option>
