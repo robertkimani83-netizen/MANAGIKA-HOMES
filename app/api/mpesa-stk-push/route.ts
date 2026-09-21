@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { phoneVariants } from "@/lib/tenant-phone";
-import { nairobiPeriod } from "@/lib/period";
+import { nairobiPeriod, nairobiDate } from "@/lib/period";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -95,7 +95,6 @@ if (!invoice) {
   if (baseRent <= 0) {
     return NextResponse.json({ error: "No rent amount is set for your unit - contact your landlord." }, { status: 400 });
   }
-  const dueDate = new Date();
   const { data: newInvoice, error: invError } = await supabaseAdmin
     .from("invoices")
     .insert({
@@ -106,7 +105,7 @@ if (!invoice) {
       rent_amount: baseRent,
       total_due: baseRent,
       status: "unpaid",
-      due_date: dueDate.toISOString().slice(0, 10),
+      due_date: nairobiDate(),
     })
     .select("id, total_due, tenant_id")
     .single();

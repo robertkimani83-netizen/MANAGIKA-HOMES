@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { allowRequest } from "@/lib/rate-limit";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -36,6 +37,12 @@ const token = authHeader.replace("Bearer ", "").trim();
 if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
 if (userError || !userData.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+// Every call spends our paid Gemini quota, so cap how many one account can
+// make in an hour (generous for real use - a landlord asking questions).
+if (!(await allowRequest("ai-assistant:user:" + userData.user.id, 60, 60 * 60))) {
+  return NextResponse.json({ error: "You've asked a lot of questions in a short time. Please wait a little and try again." }, { status: 429 });
+}
 
 const body = await request.json();
 const { question, context } = body;
