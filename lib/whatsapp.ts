@@ -88,3 +88,35 @@ export async function sendWhatsappTemplate(
     return { ok: false, error: err?.message || "WhatsApp request failed" };
   }
 }
+
+// The rent reminder template that also carries the landlord's Paybill number
+// and account. It has to be created and approved in Meta's WhatsApp Manager
+// (six body variables: name, amount, month, unit, paybill, account) before
+// Meta will deliver it; until then sendRentReminderWhatsapp falls back to the
+// original "rent_reminder" template.
+export const RENT_REMINDER_PAYBILL_TEMPLATE = "rent_reminder_paybill";
+
+export type RentReminderWhatsapp = {
+  name: string;
+  amount: string;
+  period: string;
+  unit: string;
+  paybill?: string;
+  account?: string;
+};
+
+// Sends the WhatsApp rent reminder. With a Paybill it first tries the template
+// that includes the payment instructions; if that template is not approved yet
+// (or Meta rejects it for any reason) it sends the original reminder instead,
+// so the tenant always gets a reminder. `withPaybill` says which one went out.
+export async function sendRentReminderWhatsapp(
+  to: string,
+  r: RentReminderWhatsapp
+): Promise<WhatsappSendResult & { withPaybill: boolean }> {
+  if (r.paybill && r.account) {
+    const withPay = await sendWhatsappTemplate(to, RENT_REMINDER_PAYBILL_TEMPLATE, "en", [r.name, r.amount, r.period, r.unit, r.paybill, r.account]);
+    if (withPay.ok) return { ...withPay, withPaybill: true };
+  }
+  const plain = await sendWhatsappTemplate(to, "rent_reminder", "en", [r.name, r.amount, r.period, r.unit]);
+  return { ...plain, withPaybill: false };
+}
