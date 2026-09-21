@@ -89,34 +89,6 @@ export async function sendWhatsappTemplate(
   }
 }
 
-// Sends a plain text message. WhatsApp only allows this within 24 hours of the
-// person messaging us, so it is used to answer a tenant who just wrote to us
-// (for example to confirm a complaint was received), never to start a chat.
-export async function sendWhatsappText(to: string, text: string): Promise<WhatsappSendResult> {
-  const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  if (!token || !phoneNumberId) {
-    return { ok: false, error: "WhatsApp is not configured (missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID)" };
-  }
-  const recipient = toWhatsappRecipient(to);
-  if (!recipient) return { ok: false, error: "Invalid phone number: " + to };
-
-  try {
-    const response = await fetch("https://graph.facebook.com/" + GRAPH_VERSION + "/" + phoneNumberId + "/messages", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-      body: JSON.stringify({ messaging_product: "whatsapp", to: recipient, type: "text", text: { body: text } }),
-    });
-    const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      return { ok: false, error: data?.error?.message || "WhatsApp API request failed (" + response.status + ")" };
-    }
-    return { ok: true, messageId: data?.messages?.[0]?.id || null };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "WhatsApp request failed" };
-  }
-}
-
 // The rent reminder templates. They are fixed wording that has to be created
 // and approved in Meta's WhatsApp Manager before Meta will deliver them. Neither
 // names a date: both say "Please pay ... to avoid penalties".

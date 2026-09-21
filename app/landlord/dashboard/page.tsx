@@ -31,7 +31,6 @@ const [unpaidTenants, setUnpaidTenants] = useState<UnpaidTenant[]>([]);
 const [maintenanceCount, setMaintenanceCount] = useState(0);
 const [urgentMaintenance, setUrgentMaintenance] = useState(0);
 const [complaintCount, setComplaintCount] = useState(0);
-const [unreadMessages, setUnreadMessages] = useState(0);
 const [loading, setLoading] = useState(true);
 const [paybillInfo, setPaybillInfo] = useState<PaybillInfo | null>(null);
 const [penaltiesOn, setPenaltiesOn] = useState(true);
@@ -241,14 +240,6 @@ async function loadTrend() {
 loadTrend();
 }, []);
 useEffect(() => {
-async function loadUnreadMessages() {
-  // Messages tenants sent from their own phone that this landlord has not read yet.
-  const { count } = await supabase.from("tenant_messages").select("id", { count: "exact", head: true }).is("read_at", null);
-  setUnreadMessages(count || 0);
-}
-loadUnreadMessages();
-}, []);
-useEffect(() => {
 async function loadPaybill() {
   const { data } = await supabase.auth.getSession();
   if (!data.session) return;
@@ -300,7 +291,6 @@ const menuGroups: { title: string; items: { href: string; label: string; externa
   { title: "Repairs & Notices", items: [
     { href: "/maintenance", label: "🔧 Maintenance" },
     { href: "/complaints", label: "📢 Complaints" + (complaintCount > 0 ? " (" + complaintCount + ")" : "") },
-    { href: "/messages", label: "💬 Messages" + (unreadMessages > 0 ? " (" + unreadMessages + ")" : "") },
     { href: "/announcements", label: "📣 Announcements" },
     { href: "/maintenance-schedules", label: "🗓️ Preventive Maintenance" },
     { href: "/vendors", label: "🧰 Vendors" },
