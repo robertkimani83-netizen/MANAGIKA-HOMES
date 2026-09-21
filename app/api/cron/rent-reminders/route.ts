@@ -149,7 +149,6 @@ for (const tenant of (tenants || []) as any[]) {
       paybill: paybill ? paybill.paybill : undefined,
       account: paybill ? paybillAccount(paybill, unit.unit_number) : undefined,
       penalties: settings.rules.penalties,
-      dueDay: settings.rules.dueDay,
     });
     if (waResult.ok) {
       whatsappSent++;
