@@ -263,7 +263,7 @@ const formatMoney = (amount: number) => "KSh " + amount.toLocaleString();
 function whatsappReminderLink(t: UnpaidTenant) {
   const phone = normalizePhone(t.phone);
   if (!phone) return null;
-  const message = "Hello " + t.name + ", a friendly reminder that your rent balance for Unit " + t.unit + " is KSh " + t.amount.toLocaleString() + ". Kindly pay when you can." + (paybillInfo ? " " + paybillLine(paybillInfo, t.unit) : "") + " Thank you.";
+  const message = "Hello " + t.name + ", a friendly reminder that your rent balance for Unit " + t.unit + " is KSh " + t.amount.toLocaleString() + ". Please pay before the due date to avoid penalties." + (paybillInfo ? " " + paybillLine(paybillInfo, t.unit) : "") + " Thank you.";
   return "https://wa.me/" + phone.replace("+", "") + "?text=" + encodeURIComponent(message);
 }
 // The menu, grouped by what the landlord is trying to do instead of one long
