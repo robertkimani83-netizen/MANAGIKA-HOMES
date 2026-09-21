@@ -134,7 +134,7 @@ const { error: tenantError } = await supabase.from("tenants").insert({ landlord_
 if (tenantError) { alert("Error saving tenant: " + tenantError.message); return; }
 if (unitId) {
 const { error: unitError } = await supabase.from("units").update({ status: "occupied" }).eq("id", unitId);
-if (unitError) console.error("Unit status error:", unitError);
+if (unitError) { console.error("Unit status error:", unitError); alert("Tenant saved, but the unit's status could not be set to occupied: " + unitError.message + ". Please check the Units page."); }
 // The unit may have had a public "For Rent" listing - now that it has a
 // tenant, take it off the public listing page so nobody inquires about a
 // unit that's no longer available. Silently does nothing if no listing
@@ -241,7 +241,7 @@ const { error } = await supabase.from("tenants").delete().eq("id", tenant.id).eq
 if (error) { alert("Error removing tenant: " + error.message); return; }
 if (tenant.unit_id) {
 const { error: unitError } = await supabase.from("units").update({ status: "vacant" }).eq("id", tenant.unit_id);
-if (unitError) console.error("Unit status error:", unitError);
+if (unitError) { console.error("Unit status error:", unitError); alert("Tenant removed, but the unit could not be set back to vacant: " + unitError.message + ". Please check the Units page."); }
 }
 await loadVacantUnits(landlordId);
 await loadTenants(landlordId);
