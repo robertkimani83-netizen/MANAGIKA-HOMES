@@ -134,7 +134,6 @@ try {
       paybill: paybill && unitNumber ? paybill.paybill : undefined,
       account: paybill && unitNumber ? paybillAccount(paybill, unitNumber) : undefined,
       penalties: rules.penalties,
-      dueDay: rules.dueDay,
     });
     whatsapp = waResult.ok ? { ok: true } : { ok: false, error: waResult.error };
   }
