@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { allowRequest } from "@/lib/rate-limit";
 
 // Give this route more time than the default (Vercel's default is too
 // short for the AI to finish reading a photo) so a scan doesn't get cut off
@@ -58,6 +59,13 @@ if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
 const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
 if (userError || !userData.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+// Each scan spends paid Gemini quota on a large image, so cap how many one
+// account can run per hour (a landlord scanning a few notebook pages is
+// nowhere near this).
+if (!(await allowRequest("scan-list:user:" + userData.user.id, 20, 60 * 60))) {
+  return NextResponse.json({ error: "You've scanned a lot of pages in a short time. Please wait a little and try again." }, { status: 429 });
+}
 
 const body = await request.json();
 const { imageBase64, mimeType } = body;
