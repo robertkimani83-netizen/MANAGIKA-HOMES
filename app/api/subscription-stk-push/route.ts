@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/tenant-phone";
 import { extractIntasendError } from "@/lib/intasend-error";
+import { allowRequest } from "@/lib/rate-limit";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -66,6 +67,16 @@ export async function POST(request: Request) {
     if (!normalized) {
       return NextResponse.json({ error: "Enter a valid M-Pesa phone number" }, { status: 400 });
     }
+    // A landlord can type ANY phone number here, so cap how many payment
+    // prompts one account (and one phone) can trigger - otherwise the form
+    // could be used to spam someone's phone with M-Pesa requests.
+    if (
+      !(await allowRequest("sub-stk:landlord:" + landlordId, 6, 10 * 60)) ||
+      !(await allowRequest("sub-stk:phone:" + normalized, 4, 10 * 60))
+    ) {
+      return NextResponse.json({ error: "Too many attempts. Please wait a few minutes and try again." }, { status: 429 });
+    }
+
     // IntaSend wants 2547XXXXXXXX — no leading "+".
     const phoneForIntasend = normalized.replace("+", "");
 
@@ -123,16 +134,29 @@ export async function POST(request: Request) {
       status: "pending",
     });
 
-    await supabaseAdmin.from("landlord_subscriptions").upsert(
-      {
-        landlord_id: landlordId,
-        plan,
-        billing_cycle: billingCycle,
-        status: "pending",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "landlord_id" }
-    );
+    // Only mark the account "pending" when it has no working access to lose.
+    // The dashboard lets in "active" and live-"trial" landlords only, so
+    // flipping one of those to "pending" just because they STARTED a payment
+    // (early renewal, or a prompt they then cancel) would lock them out of
+    // their own dashboard. When the payment really goes through, the webhook
+    // (subscription-callback) sets the plan, cycle and "active" itself.
+    const { data: currentSub } = await supabaseAdmin
+      .from("landlord_subscriptions")
+      .select("status")
+      .eq("landlord_id", landlordId)
+      .maybeSingle();
+    if (!currentSub || (currentSub.status !== "active" && currentSub.status !== "trial")) {
+      await supabaseAdmin.from("landlord_subscriptions").upsert(
+        {
+          landlord_id: landlordId,
+          plan,
+          billing_cycle: billingCycle,
+          status: "pending",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "landlord_id" }
+      );
+    }
 
     return NextResponse.json({ invoice_id: invoice.invoice_id, state: invoice.state });
   } catch (error: any) {
