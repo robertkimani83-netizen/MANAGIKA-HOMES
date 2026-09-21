@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
-import { sendWhatsappTemplate } from "@/lib/whatsapp";
+import { sendRentReminderWhatsapp } from "@/lib/whatsapp";
+import { buildReminderSms } from "@/lib/reminder-sms";
+import { loadPaybillInfo } from "@/lib/paybill-server";
+import { paybillAccount, type PaybillInfo } from "@/lib/paybill";
 import { nairobiPeriod } from "@/lib/period";
 
 function currentPeriod() {
@@ -16,24 +19,6 @@ if (digits.startsWith("254")) return "+" + digits;
 if (digits.startsWith("0")) return "+254" + digits.slice(1);
 if (digits.startsWith("7") || digits.startsWith("1")) return "+254" + digits;
 return "+" + digits;
-}
-
-// One readable SMS per tenant. A single SMS holds 160 characters; anything
-// longer is split into several parts and each part is charged, so this builds
-// the full friendly wording when it fits and drops the penalty sentence (then
-// shortens further) when a long name or unit number would push it over.
-function buildReminderSms(fullName: string, balance: number, period: string, unitNumber: string) {
-  const first = (fullName || "").trim().split(/\s+/)[0] || "there";
-  const name = first.length > 14 ? first.slice(0, 14) : first;
-  const month = period.split(" ")[0];
-  const amount = "KSh " + Math.round(balance).toLocaleString("en-US");
-  const unit = "Unit " + unitNumber;
-  const link = "managikahomes.co.ke/tenant/login";
-  const full = "Hello " + name + ", your " + month + " rent of " + amount + " for " + unit + " is due by the 5th. Please pay on time to avoid penalties. Details: " + link;
-  if (full.length <= 160) return full;
-  const withoutPenalty = "Hello " + name + ", your " + month + " rent of " + amount + " for " + unit + " is due by the 5th. Details: " + link;
-  if (withoutPenalty.length <= 160) return withoutPenalty;
-  return ("Hi " + name + ", " + amount + " rent for " + unit + " is due by the 5th. Pay: " + link).slice(0, 160);
 }
 
 export async function GET(request: Request) {
@@ -50,7 +35,7 @@ const dueDate = new Date(today.getFullYear(), today.getMonth(), 5).toISOString()
 
 const { data: tenants, error: tenantsError } = await supabaseAdmin
   .from("tenants")
-  .select("id, full_name, phone_number, unit_id, units(id, unit_number, base_rent, status)")
+  .select("id, landlord_id, full_name, phone_number, unit_id, units(id, unit_number, base_rent, status)")
   .eq("status", "active");
 
 if (tenantsError) {
@@ -68,6 +53,8 @@ let remindersSent = 0;
 let whatsappSent = 0;
 let invoicesCreated = 0;
 const errors: string[] = [];
+// Each landlord's Paybill details, looked up once and reused for all of their tenants.
+const paybillByLandlord = new Map<string, PaybillInfo | null>();
 
 for (const tenant of (tenants || []) as any[]) {
   const unit = tenant.units;
@@ -132,7 +119,13 @@ for (const tenant of (tenants || []) as any[]) {
     continue;
   }
 
-  const message = buildReminderSms(tenant.full_name, balance, period, unit.unit_number);
+  let paybill: PaybillInfo | null = null;
+  if (tenant.landlord_id) {
+    if (!paybillByLandlord.has(tenant.landlord_id)) paybillByLandlord.set(tenant.landlord_id, await loadPaybillInfo(tenant.landlord_id));
+    paybill = paybillByLandlord.get(tenant.landlord_id) || null;
+  }
+
+  const message = buildReminderSms({ fullName: tenant.full_name, balance, unitNumber: unit.unit_number, period, paybill });
 
   try {
     await sms.send({ to: [toKenyanFormat(tenant.phone_number)], message: message, ...(senderId ? { from: senderId } : {}) });
@@ -145,12 +138,14 @@ for (const tenant of (tenants || []) as any[]) {
   // template isn't approved yet or the send otherwise fails, that's logged
   // here but never blocks the SMS reminder above from having gone out.
   try {
-    const waResult = await sendWhatsappTemplate(tenant.phone_number, "rent_reminder", "en", [
-      tenant.full_name,
-      balance.toLocaleString(),
+    const waResult = await sendRentReminderWhatsapp(tenant.phone_number, {
+      name: tenant.full_name,
+      amount: balance.toLocaleString(),
       period,
-      unit.unit_number,
-    ]);
+      unit: unit.unit_number,
+      paybill: paybill ? paybill.paybill : undefined,
+      account: paybill ? paybillAccount(paybill, unit.unit_number) : undefined,
+    });
     if (waResult.ok) {
       whatsappSent++;
     } else {
