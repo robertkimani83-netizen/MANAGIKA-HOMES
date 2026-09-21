@@ -88,7 +88,7 @@ const { paybill, rules } = await loadReminderSettings(tenant.landlord_id);
 // added when there is a unit to build the account from.
 let smsMessage: string;
 if (balanceKnown && balance > 0 && unitNumber) {
-  smsMessage = buildReminderSms({ fullName: tenant.full_name || "", balance, unitNumber, paybill, dueDay: rules.dueDay, penalties: rules.penalties });
+  smsMessage = buildReminderSms({ fullName: tenant.full_name || "", balance, unitNumber, paybill, penalties: rules.penalties });
 } else {
   smsMessage = paybill && unitNumber ? message + " " + paybillLine(paybill, unitNumber) : message;
 }

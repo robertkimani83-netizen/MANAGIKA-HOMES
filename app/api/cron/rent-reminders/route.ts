@@ -128,7 +128,7 @@ for (const tenant of (tenants || []) as any[]) {
     continue;
   }
 
-  const message = buildReminderSms({ fullName: tenant.full_name, balance, unitNumber: unit.unit_number, period, paybill, dueDay: settings.rules.dueDay, penalties: settings.rules.penalties });
+  const message = buildReminderSms({ fullName: tenant.full_name, balance, unitNumber: unit.unit_number, period, paybill, penalties: settings.rules.penalties });
 
   try {
     await sms.send({ to: [toKenyanFormat(tenant.phone_number)], message: message, ...(senderId ? { from: senderId } : {}) });
