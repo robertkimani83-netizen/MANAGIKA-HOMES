@@ -1,5 +1,4 @@
 import { paybillAccount, type PaybillInfo } from "@/lib/paybill";
-import { DEFAULT_DUE_DAY, ordinal } from "@/lib/reminder-rules";
 
 // One readable SMS per tenant. A single SMS holds 160 characters; anything
 // longer is split into several parts and each part is charged. So this builds
@@ -8,8 +7,10 @@ import { DEFAULT_DUE_DAY, ordinal } from "@/lib/reminder-rules";
 // Paybill number and account are never cut: a tenant who cannot see them
 // cannot pay.
 //
-//   period given  -> "your September rent of KSh 5,000 for Unit A14 is due by the 5th"
-//                    (the day is the landlord's own due day; the 5th if not set)
+// The message never names a date. It says the rent is due and, unless the
+// landlord turned penalties off, "Please pay to avoid penalties."
+//
+//   period given  -> "your September rent of KSh 5,000 for Unit A14 is due"
 //   period absent -> "your rent balance of KSh 5,000 for Unit A14 is due"
 //                    (used for a manual reminder, where the amount can cover
 //                    more than one month)
@@ -23,7 +24,6 @@ export type ReminderSmsInput = {
   unitNumber: string;
   period?: string;
   paybill?: PaybillInfo | null;
-  dueDay?: number; // the landlord's due day of the month; the 5th when not given
   penalties?: boolean; // whether late payment has penalties; yes when not given
 };
 
@@ -33,19 +33,26 @@ export function buildReminderSms(input: ReminderSmsInput): string {
   const amount = "KSh " + Math.round(input.balance).toLocaleString("en-US");
   const unit = "Unit " + input.unitNumber;
   const month = input.period ? input.period.split(" ")[0] : "";
-  const by = "the " + ordinal(input.dueDay || DEFAULT_DUE_DAY);
+  const penalties = input.penalties !== false;
 
   const owed = month
-    ? "your " + month + " rent of " + amount + " for " + unit + " is due by " + by
+    ? "your " + month + " rent of " + amount + " for " + unit + " is due"
     : "your rent balance of " + amount + " for " + unit + " is due";
   const shortOwed = month
-    ? amount + " rent for " + unit + " is due by " + by
+    ? amount + " rent for " + unit + " is due"
     : amount + " rent balance for " + unit + " is due";
 
   if (input.paybill) {
     const acc = paybillAccount(input.paybill, input.unitNumber);
     const pay = "Paybill " + input.paybill.paybill + ", Account " + acc;
     const candidates = [
+      ...(penalties
+        ? [
+            "Hello " + name + ", " + owed + ". Please pay to avoid penalties. " + pay + ". Details: " + LINK,
+            "Hello " + name + ", " + owed + ". Please pay to avoid penalties. " + pay + ".",
+            "Hi " + name + ", " + shortOwed + ". Pay to avoid penalties. " + pay + ".",
+          ]
+        : []),
       "Hello " + name + ", " + owed + ". " + pay + ". Details: " + LINK,
       "Hello " + name + ", " + owed + ". Pay via M-Pesa " + pay + ".",
       "Hello " + name + ", " + owed + ". " + pay + ".",
@@ -57,16 +64,10 @@ export function buildReminderSms(input: ReminderSmsInput): string {
     return candidates.find((c) => c.length <= MAX) || candidates[candidates.length - 1];
   }
 
-  const payOnTime = input.penalties === false ? "Please pay on time." : "Please pay on time to avoid penalties.";
-  const candidates = month
-    ? [
-        "Hello " + name + ", " + owed + ". " + payOnTime + " Details: " + LINK,
-        "Hello " + name + ", " + owed + ". Details: " + LINK,
-      ]
-    : [
-        "Hello " + name + ", " + owed + ". Please pay at your earliest convenience. Details: " + LINK,
-        "Hello " + name + ", " + owed + ". Details: " + LINK,
-      ];
+  const candidates = [
+    ...(penalties ? ["Hello " + name + ", " + owed + ". Please pay to avoid penalties. Details: " + LINK] : []),
+    "Hello " + name + ", " + owed + ". Details: " + LINK,
+  ];
   const fit = candidates.find((c) => c.length <= MAX);
   if (fit) return fit;
   return ("Hi " + name + ", " + shortOwed + ". Pay: " + LINK).slice(0, MAX);
