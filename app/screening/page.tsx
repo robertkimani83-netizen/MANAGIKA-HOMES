@@ -95,18 +95,21 @@ export default function ScreeningPage() {
   }
 
   async function updateRecommendation(id: string, value: string) {
-    await supabase.from("tenant_screenings").update({ recommendation: value }).eq("id", id).eq("landlord_id", landlordId);
+    const { error: updateError } = await supabase.from("tenant_screenings").update({ recommendation: value }).eq("id", id).eq("landlord_id", landlordId);
+    if (updateError) { alert("Could not save this change: " + updateError.message); return; }
     if (landlordId) await loadScreenings(landlordId);
   }
 
   async function markConverted(id: string) {
-    await supabase.from("tenant_screenings").update({ converted_to_tenant: true }).eq("id", id).eq("landlord_id", landlordId);
+    const { error: convertError } = await supabase.from("tenant_screenings").update({ converted_to_tenant: true }).eq("id", id).eq("landlord_id", landlordId);
+    if (convertError) { alert("Could not save this change: " + convertError.message); return; }
     if (landlordId) await loadScreenings(landlordId);
   }
 
   async function deleteScreening(id: string) {
     if (!confirm("Delete this screening record?")) return;
-    await supabase.from("tenant_screenings").delete().eq("id", id).eq("landlord_id", landlordId);
+    const { error: deleteError } = await supabase.from("tenant_screenings").delete().eq("id", id).eq("landlord_id", landlordId);
+    if (deleteError) { alert("Could not delete this record: " + deleteError.message); return; }
     if (landlordId) await loadScreenings(landlordId);
   }
 

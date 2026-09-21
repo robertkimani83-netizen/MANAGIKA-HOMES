@@ -13,6 +13,13 @@ import { supabase } from "@/lib/supabase";
 
 const CATEGORIES = ["maintenance", "utilities", "staff", "insurance", "taxes", "supplies", "other"];
 
+// Today's date in the browser's own (local) time zone. toISOString() is UTC,
+// which is 3 hours behind Kenya/Qatar, so between midnight and 3 a.m. it
+// still says "yesterday" - and on the 1st, "last month".
+function localDateString(d: Date = new Date()) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
 function currentPeriod() {
   const d = new Date();
   const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -35,7 +42,7 @@ export default function ExpensesPage() {
   const [category, setCategory] = useState("maintenance");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [expenseDate, setExpenseDate] = useState(() => localDateString());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,7 +112,8 @@ export default function ExpensesPage() {
   async function deleteExpense(id: string) {
     if (!landlordId) return;
     if (!confirm("Delete this expense?")) return;
-    await supabase.from("expenses").delete().eq("id", id).eq("landlord_id", landlordId);
+    const { error: deleteError } = await supabase.from("expenses").delete().eq("id", id).eq("landlord_id", landlordId);
+    if (deleteError) { alert("Could not delete this expense: " + deleteError.message); return; }
     await loadExpenses(landlordId);
   }
 

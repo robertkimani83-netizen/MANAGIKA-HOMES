@@ -160,6 +160,7 @@ export default function TenantDashboard() {
 
   async function submitMaintenance() {
   if (!tenant) return;
+  if (!tenant.unit_id) { alert("You don't have a unit assigned yet, so your landlord would not see this. Please ask your landlord to assign your unit first."); return; }
   if (!title.trim() || !description.trim()) { alert("Please fill in the title and description."); return; }
   const { error } = await supabase.from("maintenance_requests").insert({ tenant_id: tenant.id, unit_id: tenant.unit_id, category, title: title.trim(), description: description.trim(), urgency, status: "submitted" });
   if (error) { alert("Error submitting request: " + error.message); return; }
@@ -170,6 +171,7 @@ export default function TenantDashboard() {
 
   async function submitComplaint() {
   if (!tenant) return;
+  if (!tenant.unit_id) { alert("You don't have a unit assigned yet, so your landlord would not see this. Please ask your landlord to assign your unit first."); return; }
   if (!complaintText.trim()) { alert("Please describe your complaint."); return; }
   const { error } = await supabase.from("complaints").insert({ tenant_id: tenant.id, unit_id: tenant.unit_id, description: complaintText.trim(), status: "submitted" });
   if (error) { alert("Error submitting complaint: " + error.message); return; }

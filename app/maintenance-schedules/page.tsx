@@ -9,10 +9,16 @@ import { supabase } from "@/lib/supabase";
 // instead of only ever reacting to a tenant's complaint. A daily cron
 // (maintenance-due) texts the landlord when one is coming up; "Mark done"
 // here pushes the next due date forward by the same frequency.
+// Local-time date (toISOString() is UTC, which is a day behind Kenya/Qatar
+// between midnight and 3 a.m., and would shift dates by one day).
+function localDateString(d: Date = new Date()) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
 function addMonths(dateStr: string, months: number) {
   const d = new Date(dateStr + "T00:00:00");
   d.setMonth(d.getMonth() + months);
-  return d.toISOString().slice(0, 10);
+  return localDateString(d);
 }
 
 export default function MaintenanceSchedulesPage() {
@@ -25,7 +31,7 @@ export default function MaintenanceSchedulesPage() {
   const [unitId, setUnitId] = useState("");
   const [title, setTitle] = useState("");
   const [frequencyMonths, setFrequencyMonths] = useState("6");
-  const [nextDueDate, setNextDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [nextDueDate, setNextDueDate] = useState(() => localDateString());
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,24 +79,26 @@ export default function MaintenanceSchedulesPage() {
 
   async function markDone(s: any) {
     if (!landlordId) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateString();
     const newDueDate = addMonths(today, s.frequency_months);
-    await supabase.from("maintenance_schedules").update({
+    const { error: doneError } = await supabase.from("maintenance_schedules").update({
       last_completed_at: today,
       next_due_date: newDueDate,
       last_reminded_at: null,
     }).eq("id", s.id).eq("landlord_id", landlordId);
+    if (doneError) { alert("Could not mark this as done: " + doneError.message); return; }
     await loadSchedules(landlordId);
   }
 
   async function deleteSchedule(id: string) {
     if (!landlordId) return;
     if (!confirm("Delete this maintenance schedule?")) return;
-    await supabase.from("maintenance_schedules").delete().eq("id", id).eq("landlord_id", landlordId);
+    const { error: deleteError } = await supabase.from("maintenance_schedules").delete().eq("id", id).eq("landlord_id", landlordId);
+    if (deleteError) { alert("Could not delete this schedule: " + deleteError.message); return; }
     await loadSchedules(landlordId);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateString();
 
   if (loading) {
     return (<main className="min-h-screen bg-gray-100 flex items-center justify-center text-gray-500">Loading maintenance schedules...</main>);

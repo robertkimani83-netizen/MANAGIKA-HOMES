@@ -66,6 +66,8 @@ const [authToken, setAuthToken] = useState("");
 const [unpaidInvoices, setUnpaidInvoices] = useState<UnpaidInvoice[]>([]);
 const [savingPayment, setSavingPayment] = useState(false);
 const [remindingAll, setRemindingAll] = useState(false);
+// Set when any of the page's data failed to load, so we never show "everyone unpaid" as if it were true.
+const [loadError, setLoadError] = useState<string | null>(null);
 // null = this account has no "Unmatched bank SMS" page (the button stays hidden);
 // a number = how many bank SMS still need a look.
 const [unmatchedCount, setUnmatchedCount] = useState<number | null>(null);
@@ -144,6 +146,7 @@ async function loadTenants(id: string) {
 // client-side - this puts the Rent Status table in natural unit order
 // (A1, A2, ... SHOP B1, ... B1, ...) instead of alphabetical by tenant name.
 const { data, error } = await supabase.from("tenants").select("id, full_name, unit_id, phone_number, units(id, unit_number, base_rent, unit_sort_key, properties(property_name))").eq("landlord_id", id).eq("status", "active");
+if (error) setLoadError("Some of your data could not be loaded (" + error.message + "). Please refresh the page before trusting the amounts below.");
 if (!error && data) {
   const sorted = (data as unknown as (Tenant & { units: (Tenant["units"] & { unit_sort_key?: string }) | null })[]).slice().sort((a, b) => {
     const keyA = a.units?.unit_sort_key;
@@ -159,6 +162,7 @@ if (!error && data) {
 
 async function loadUnpaidInvoices(id: string) {
 const { data, error } = await supabase.from("invoices").select("id, billing_period, total_due, status, tenant_id, tenants!inner(landlord_id)").eq("tenants.landlord_id", id).neq("status", "paid");
+if (error) setLoadError("Some of your data could not be loaded (" + error.message + "). Please refresh the page before trusting the amounts below.");
 if (!error && data) setUnpaidInvoices(data as unknown as UnpaidInvoice[]);
 }
 
@@ -188,6 +192,7 @@ try {
 async function loadPayments(id: string) {
 setLoading(true);
 const { data, error } = await supabase.from("payments").select("id, amount_paid, payment_method, transaction_reference, paid_at, invoices!inner(id, billing_period, total_due, status, tenants!inner(id, full_name, landlord_id), units(unit_number))").eq("invoices.tenants.landlord_id", id).order("paid_at", { ascending: false });
+if (error) setLoadError("Some of your data could not be loaded (" + error.message + "). Please refresh the page before trusting the amounts below.");
 if (!error && data) setPayments(data as unknown as Payment[]);
 setLoading(false);
 }
@@ -219,7 +224,7 @@ let totalDue = existingInvoice ? Number(existingInvoice.total_due) : rent;
 
 if (!invoiceId) {
   const dueDate = new Date();
-  const { data: newInvoice, error: invError } = await supabase.from("invoices").insert({ invoice_number: "INV-" + Date.now(), tenant_id: tenantId, unit_id: tenant.unit_id, billing_period: period, rent_amount: rent, total_due: rent, status: "unpaid", due_date: dueDate.toISOString().slice(0, 10) }).select("id").single();
+  const { data: newInvoice, error: invError } = await supabase.from("invoices").insert({ invoice_number: "INV-" + Date.now(), tenant_id: tenantId, unit_id: tenant.unit_id, billing_period: period, rent_amount: rent, total_due: rent, status: "unpaid", due_date: dueDate.getFullYear() + "-" + String(dueDate.getMonth() + 1).padStart(2, "0") + "-" + String(dueDate.getDate()).padStart(2, "0") }).select("id").single();
   if (invError || !newInvoice) { alert("Error creating invoice: " + (invError?.message || "unknown error")); return; }
   invoiceId = newInvoice.id;
   totalDue = rent;
@@ -303,6 +308,7 @@ alert("Reminder sent to " + summary.tenant.full_name + "!");
 // at once - fine at the tenant counts this app deals with, and easier to
 // reason about if one send fails partway through.
 async function remindAllUnpaid() {
+if (loadError) { alert("Part of this page failed to load, so I can't be sure who has paid. Please refresh the page first."); return; }
 // Only tenants who really owe something - a tenant with no unit assigned has
 // nothing expected, so they must not be told "KSh 0 is due".
 const unpaidSummaries = tenantSummaries.filter((s) => s.status !== "Paid" && s.balance > 0);
@@ -348,7 +354,16 @@ const tenantSummaries: TenantSummary[] = tenants.map((tenant) => {
 // rare in practice) would otherwise have their payments merged, making
 // one look paid because of the other's payment.
 const tenantPayments = currentPayments.filter((p) => p.invoices?.tenants?.id === tenant.id);
-const expected = Number(tenant.units?.base_rent) || 0;
+const baseRent = Number(tenant.units?.base_rent) || 0;
+// This month's real invoice also carries the water charge (rent + water),
+// so use it when it is bigger than the plain rent - otherwise a tenant who
+// paid only the rent would show "Paid" while the invoice is still open.
+const thisMonthInvoiceTotal = Math.max(
+  0,
+  ...unpaidInvoices.filter((inv) => inv.tenant_id === tenant.id && inv.billing_period === period).map((inv) => Number(inv.total_due) || 0),
+  ...tenantPayments.map((p) => Number(p.invoices?.total_due) || 0)
+);
+const expected = Math.max(baseRent, thisMonthInvoiceTotal);
 const paid = tenantPayments.reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
 
 // Any unpaid/partially-paid invoice from a period OTHER than the current
@@ -375,7 +390,7 @@ const rentCollected = tenantSummaries.reduce((sum, item) => sum + item.paid, 0);
 const outstanding = tenantSummaries.reduce((sum, item) => sum + item.balance, 0);
 const paidTenants = tenantSummaries.filter((item) => item.status === "Paid").length;
 const unpaidTenants = tenantSummaries.filter((item) => item.status === "Unpaid").length;
-const notFullyPaidCount = tenantSummaries.filter((item) => item.status !== "Paid").length;
+const notFullyPaidCount = tenantSummaries.filter((item) => item.status !== "Paid" && item.balance > 0).length;
 
 function statusClasses(status: string) {
 if (status === "Paid") return "bg-green-100 text-green-700";
@@ -543,6 +558,9 @@ return (
       </div>
     )}
 
+    {loadError && (
+      <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>
+    )}
     <div className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
       <div className="border-b px-6 py-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>

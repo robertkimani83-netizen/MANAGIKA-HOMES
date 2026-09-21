@@ -57,7 +57,8 @@ export default function VendorsPage() {
   async function deleteVendor(id: string) {
     if (!landlordId) return;
     if (!confirm("Delete this vendor? Past maintenance requests assigned to them will keep their history, just without a linked vendor.")) return;
-    await supabase.from("vendors").delete().eq("id", id).eq("landlord_id", landlordId);
+    const { error: deleteError } = await supabase.from("vendors").delete().eq("id", id).eq("landlord_id", landlordId);
+    if (deleteError) { alert("Could not delete this vendor: " + deleteError.message); return; }
     await loadVendors(landlordId);
   }
 
