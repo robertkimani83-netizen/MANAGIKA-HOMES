@@ -2,7 +2,10 @@
 import { createClient } from "@supabase/supabase-js";
 import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { sendWhatsappTemplate } from "@/lib/whatsapp";
+import { sendRentReminderWhatsapp } from "@/lib/whatsapp";
+import { buildReminderSms } from "@/lib/reminder-sms";
+import { loadPaybillInfo } from "@/lib/paybill-server";
+import { paybillAccount, paybillLine } from "@/lib/paybill";
 import { nairobiPeriod } from "@/lib/period";
 
 function currentPeriod() {
@@ -53,6 +56,43 @@ if (!tenant.phone_number) {
   return NextResponse.json({ error: "This tenant has no phone number on file." }, { status: 400 });
 }
 
+// What the tenant owes across all unpaid invoices, and their unit - used for
+// both the SMS wording and the WhatsApp template below.
+let balance = 0;
+let balanceKnown = true;
+try {
+  const { data: unpaidInvoices } = await supabaseAdmin
+    .from("invoices")
+    .select("id, total_due")
+    .eq("tenant_id", tenantId)
+    .in("status", ["unpaid", "partially_paid"]);
+  for (const inv of unpaidInvoices || []) {
+    const { data: pays } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", inv.id);
+    const paid = (pays || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
+    balance += Math.max(Number(inv.total_due) - paid, 0);
+  }
+} catch {
+  balanceKnown = false;
+}
+
+const unitRaw: any = (tenant as any).units;
+const unitNumber: string = (Array.isArray(unitRaw) ? unitRaw[0]?.unit_number : unitRaw?.unit_number) || "";
+
+// The landlord's Paybill (if they set one) goes into the reminder so the
+// tenant is told exactly where to pay, e.g. "Paybill 222111, Account 27833#A14".
+const paybill = await loadPaybillInfo(tenant.landlord_id);
+
+// SMS text: built here (not taken from the browser) so it is one readable SMS
+// with the payment instructions. If we cannot work out an unpaid balance or the
+// tenant has no unit, the landlord's own wording is sent, with the Paybill line
+// added when there is a unit to build the account from.
+let smsMessage: string;
+if (balanceKnown && balance > 0 && unitNumber) {
+  smsMessage = buildReminderSms({ fullName: tenant.full_name || "", balance, unitNumber, paybill });
+} else {
+  smsMessage = paybill && unitNumber ? message + " " + paybillLine(paybill, unitNumber) : message;
+}
+
 const africastalking = AfricasTalking({
   apiKey: process.env.AFRICASTALKING_API_KEY as string,
   username: process.env.AFRICASTALKING_USERNAME as string,
@@ -63,7 +103,7 @@ const sms = africastalking.SMS;
 const senderId = process.env.AFRICASTALKING_SENDER_ID;
 const result = await sms.send({
   to: [toKenyanFormat(tenant.phone_number)],
-  message: message,
+  message: smsMessage,
   ...(senderId ? { from: senderId } : {}),
 });
 
@@ -81,33 +121,19 @@ const delivered = recipient?.status === "Success";
 // landlord (so "Sent" claims are honest) but never blocks the other channel.
 let whatsapp: { ok: boolean; error?: string } = { ok: false, error: "not attempted" };
 try {
-  const { data: unpaidInvoices } = await supabaseAdmin
-    .from("invoices")
-    .select("id, total_due")
-    .eq("tenant_id", tenantId)
-    .in("status", ["unpaid", "partially_paid"]);
-
-  let balance = 0;
-  for (const inv of unpaidInvoices || []) {
-    const { data: pays } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", inv.id);
-    const paid = (pays || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
-    balance += Math.max(Number(inv.total_due) - paid, 0);
-  }
-
-  const unitRaw: any = (tenant as any).units;
-  const unitNumber = Array.isArray(unitRaw) ? unitRaw[0]?.unit_number : unitRaw?.unit_number;
-
   if (balance <= 0) {
     // The WhatsApp template is a fixed "your rent balance of KSh X is due"
     // message, so it must not go out for a tenant who owes nothing.
-    whatsapp = { ok: false, error: "no unpaid balance, so no WhatsApp rent reminder was sent" };
+    whatsapp = { ok: false, error: balanceKnown ? "no unpaid balance, so no WhatsApp rent reminder was sent" : "could not work out the balance, so no WhatsApp rent reminder was sent" };
   } else {
-    const waResult = await sendWhatsappTemplate(tenant.phone_number, "rent_reminder", "en", [
-      tenant.full_name || "there",
-      balance.toLocaleString(),
-      currentPeriod(),
-      unitNumber || "-",
-    ]);
+    const waResult = await sendRentReminderWhatsapp(tenant.phone_number, {
+      name: tenant.full_name || "there",
+      amount: balance.toLocaleString(),
+      period: currentPeriod(),
+      unit: unitNumber || "-",
+      paybill: paybill && unitNumber ? paybill.paybill : undefined,
+      account: paybill && unitNumber ? paybillAccount(paybill, unitNumber) : undefined,
+    });
     whatsapp = waResult.ok ? { ok: true } : { ok: false, error: waResult.error };
   }
 } catch (waError: any) {
