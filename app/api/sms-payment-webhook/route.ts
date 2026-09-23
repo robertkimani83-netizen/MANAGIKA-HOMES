@@ -3,6 +3,7 @@ import { createHmac } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
 import { sendPaymentConfirmation, paymentBalanceText } from "@/lib/payment-confirmation";
+import { sendAdminAlert } from "@/lib/admin-alert";
 
 // Auto-confirms rent payments detected from Family Bank SMS forwarded off
 // mum's phone (paybill 222111, her personal Account 27833 - shared across
@@ -232,6 +233,7 @@ export async function POST(request: Request) {
       if ((paymentError as any).code === "23505") {
         return NextResponse.json({ status: "duplicate_ignored" });
       }
+      await sendAdminAlert("payment-not-saved", "Bank SMS payment of KSh " + amount + " (ref " + mpesaRef + ", #" + houseTag + ") did NOT save. Check Vercel logs.");
       throw new Error("could not store payment: " + paymentError.message);
     }
     paymentRecorded = true;
@@ -290,6 +292,9 @@ export async function POST(request: Request) {
       messageText: "",
       reason: "internal_error: " + String(error?.message || "unknown").slice(0, 200),
     });
+    if (!paymentRecorded) {
+      await sendAdminAlert("sms-webhook-crash", "Bank SMS webhook crashed before saving a payment: " + String(error?.message || error).slice(0, 100));
+    }
     if (paymentRecorded) {
       // The payment is stored; only a later step (status update / WhatsApp)
       // failed. Retrying can't add anything, so tell the forwarder "done".
@@ -325,5 +330,18 @@ async function logUnmatched(entry: {
   } catch {
     // Logging is a safety net, not critical path - never let a logging
     // failure surface as an error to the forwarder app.
+  }
+
+  // A parsed amount means real money actually arrived - it's sitting
+  // unmatched in the "Unmatched bank SMS" page and a tenant may think
+  // they've paid when the app doesn't show it yet. Worth a text, throttled
+  // to one alert per 30 minutes across all unmatched entries (the page
+  // itself has the details for each one, this SMS is just the nudge to go
+  // look).
+  if (entry.amount) {
+    await sendAdminAlert(
+      "sms-unmatched",
+      "Bank SMS payment of KSh " + entry.amount + " (#" + (entry.houseTag || "?") + ") wasn't matched to a tenant (" + entry.reason + "). Check Unmatched SMS page."
+    );
   }
 }

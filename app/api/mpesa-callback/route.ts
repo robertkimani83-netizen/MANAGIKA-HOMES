@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
 import { sendPaymentConfirmation, paymentBalanceText } from "@/lib/payment-confirmation";
 import { nairobiPeriod, nairobiDate } from "@/lib/period";
+import { sendAdminAlert } from "@/lib/admin-alert";
 
 export async function POST(request: Request) {
 try {
@@ -134,6 +135,7 @@ if (resultCode === 0) {
         // this line in the Vercel logs is how it gets found and fixed by hand.
         if (paymentInsertError && (paymentInsertError as any).code !== "23505") {
           console.error("[mpesa-callback] PAYMENT NOT SAVED:", paymentInsertError.message, "receipt", mpesaReceiptNumber, "amount", amount, "tenant", tenantId);
+          await sendAdminAlert("payment-not-saved", "M-Pesa payment of KSh " + amount + " (receipt " + mpesaReceiptNumber + ") did NOT save. Check Vercel logs.");
         }
       }
 
@@ -172,6 +174,9 @@ if (resultCode === 0) {
           });
           if (!whatsapp.ok) console.error("[mpesa-callback] WhatsApp confirmation failed:", whatsapp.error, "tenant", tenantId);
           if (!sms.ok) console.error("[mpesa-callback] SMS confirmation failed:", sms.error, "tenant", tenantId);
+          if (!whatsapp.ok && !sms.ok) {
+            await sendAdminAlert("payment-confirmation-failed", "A tenant paid but got NO confirmation (WhatsApp and SMS both failed). Tenant: " + (tenantFullName || tenantId));
+          }
         } catch {
           // Best-effort only - the payment itself is already recorded above.
         }
@@ -186,6 +191,7 @@ return NextResponse.json({ ResultCode: 0, ResultDesc: "Accepted" });
 // Safaricom still needs a 200 back, but never swallow the reason silently:
 // without this line a failed payment record leaves no trace at all.
 console.error("[mpesa-callback] error while processing callback:", error?.message || error);
+await sendAdminAlert("mpesa-callback-crash", "M-Pesa callback crashed: " + String(error?.message || error).slice(0, 100));
 return NextResponse.json({ ResultCode: 0, ResultDesc: "Accepted" });
 }
 }
