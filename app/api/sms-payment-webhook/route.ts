@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
 import { sendPaymentConfirmation, paymentBalanceText } from "@/lib/payment-confirmation";
 import { sendAdminAlert } from "@/lib/admin-alert";
+import { invoiceStatusFor } from "@/lib/invoice-math";
 
 // Auto-confirms rent payments detected from Family Bank SMS forwarded off
 // mum's phone (paybill 222111, her personal Account 27833 - shared across
@@ -240,7 +241,7 @@ export async function POST(request: Request) {
 
     const { data: allPayments } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", invoice.id);
     const totalPaid = (allPayments || []).reduce((sum, p: any) => sum + (Number(p.amount_paid) || 0), 0);
-    const newStatus = totalPaid >= Number(invoice.total_due) ? "paid" : "partially_paid";
+    const newStatus = invoiceStatusFor(invoice.total_due, totalPaid);
     const { error: statusError } = await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
     if (statusError) {
       // The payment row is safe, but the invoice would keep showing "unpaid".

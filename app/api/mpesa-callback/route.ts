@@ -4,6 +4,7 @@ import { secureCompare } from "@/lib/secure-compare";
 import { sendPaymentConfirmation, paymentBalanceText } from "@/lib/payment-confirmation";
 import { nairobiPeriod, nairobiDate } from "@/lib/period";
 import { sendAdminAlert } from "@/lib/admin-alert";
+import { invoiceStatusFor } from "@/lib/invoice-math";
 
 export async function POST(request: Request) {
 try {
@@ -145,7 +146,7 @@ if (resultCode === 0) {
         .eq("invoice_id", invoice.id);
 
       const totalPaid = (allPayments || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
-      const newStatus = totalPaid >= Number(invoice.total_due) ? "paid" : "partially_paid";
+      const newStatus = invoiceStatusFor(invoice.total_due, totalPaid);
 
       const { error: statusUpdateError } = await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
       if (statusUpdateError) console.error("[mpesa-callback] could not update invoice status:", statusUpdateError.message, "invoice", invoice.id);

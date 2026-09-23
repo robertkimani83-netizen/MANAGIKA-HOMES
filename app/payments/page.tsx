@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { invoiceStatusFor } from "@/lib/invoice-math";
 
 type Tenant = {
 id: string;
@@ -248,9 +249,7 @@ if (payError) { alert("Error recording payment: " + payError.message); return; }
 const { data: invoicePayments } = await supabase.from("payments").select("amount_paid").eq("invoice_id", invoiceId);
 const totalPaid = (invoicePayments || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
 
-let newStatus = "unpaid";
-if (totalPaid >= totalDue) newStatus = "paid";
-else if (totalPaid > 0) newStatus = "partially_paid";
+const newStatus = invoiceStatusFor(totalDue, totalPaid);
 
 const { error: statusError } = await supabase.from("invoices").update({ status: newStatus }).eq("id", invoiceId);
 if (statusError) alert("Payment saved, but invoice status could not be updated: " + statusError.message);

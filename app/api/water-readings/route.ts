@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { nairobiPeriod } from "@/lib/period";
+import { invoiceStatusFor } from "@/lib/invoice-math";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -163,9 +164,7 @@ export async function POST(request: Request) {
 
     const { data: invoicePayments } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", invoiceId);
     const totalPaid = (invoicePayments || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
-    let newStatus = "unpaid";
-    if (totalPaid >= totalDue) newStatus = "paid";
-    else if (totalPaid > 0) newStatus = "partially_paid";
+    const newStatus = invoiceStatusFor(totalDue, totalPaid);
     await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoiceId);
   }
 

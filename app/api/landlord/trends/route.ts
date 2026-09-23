@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { nairobiPeriod } from "@/lib/period";
+import { collectionRate } from "@/lib/invoice-math";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -74,8 +75,7 @@ export async function GET(request: Request) {
     const trend = periods.map((p) => {
       const totalDue = dueByPeriod.get(p.key) || 0;
       const totalCollected = collectedByPeriod.get(p.key) || 0;
-      const collectionRate = totalDue > 0 ? Math.min(100, Math.round((totalCollected / totalDue) * 100)) : null;
-      return { period: p.key, label: p.label, totalDue, totalCollected, collectionRate };
+      return { period: p.key, label: p.label, totalDue, totalCollected, collectionRate: collectionRate(totalDue, totalCollected) };
     });
 
     return NextResponse.json({ trend });

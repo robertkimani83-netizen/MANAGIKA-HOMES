@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { collectionRate } from "@/lib/invoice-math";
 
 // One-page monthly report a landlord can print or "Save as PDF" and hand to
 // an owner or accountant: who paid, who owes, what was spent, what is left.
@@ -151,7 +152,7 @@ export default function MonthlyReportPage() {
   const outstandingTotal = rows.reduce((s, r) => s + r.balance, 0);
   const expenseTotal = expenses.reduce((s, e) => s + e.amount, 0);
   const net = collectedTotal - expenseTotal;
-  const rate = billedTotal > 0 ? Math.round((collectedTotal / billedTotal) * 100) : null;
+  const rate = collectionRate(billedTotal, collectedTotal);
   const expensesByCategory: Record<string, number> = {};
   for (const e of expenses) expensesByCategory[e.category] = (expensesByCategory[e.category] || 0) + e.amount;
   const period = options[selected].period;
