@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ke.co.managikahomes.twa",
+      "sha256_cert_fingerprints": [
+        "1A:B4:1F:51:30:2A:25:A3:10:0F:EE:22:0F:CC:8B:4E:0E:45:DC:DA:88:6A:72:7E:9B:B1:33:DE:AD:A2:5E:22"
+      ]
+    }
+  }
+]
