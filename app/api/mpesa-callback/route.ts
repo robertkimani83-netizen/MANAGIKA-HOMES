@@ -130,22 +130,29 @@ if (resultCode === 0) {
 
       await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
 
-      // Rent is now fully settled - let the tenant know over WhatsApp. This
-      // never blocks or fails the M-Pesa callback response itself: Safaricom
-      // needs a 200 back regardless, so any WhatsApp error is swallowed here.
-      if (newStatus === "paid" && tenantPhoneNumber) {
+      // Let the tenant know their payment was received over WhatsApp -
+      // whether it fully settled the invoice or left a balance still owed.
+      // This never blocks or fails the M-Pesa callback response itself:
+      // Safaricom needs a 200 back regardless, so any WhatsApp error is
+      // swallowed here.
+      if (tenantPhoneNumber) {
         try {
           let unitNumber = "";
           if (unitId) {
             const { data: unitRow } = await supabaseAdmin.from("units").select("unit_number").eq("id", unitId).maybeSingle();
             unitNumber = unitRow?.unit_number || "";
           }
+          const remaining = Number(invoice.total_due) - totalPaid;
+          const balanceText = remaining <= 0
+            ? "Your rent is now fully paid."
+            : "Balance remaining: KSh " + remaining.toLocaleString() + ".";
           await sendWhatsappTemplate(tenantPhoneNumber, "payment_confirmation", "en", [
             tenantFullName || "there",
             Number(amount).toLocaleString(),
             period,
             unitNumber,
             mpesaReceiptNumber || "",
+            balanceText,
           ]);
         } catch {
           // Best-effort only - the payment itself is already recorded above.

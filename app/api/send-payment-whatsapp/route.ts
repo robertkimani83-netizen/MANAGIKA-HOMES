@@ -34,7 +34,7 @@ if (!invoiceId || !amountPaid) {
 
 const { data: invoice, error: invoiceError } = await supabaseAdmin
   .from("invoices")
-  .select("id, billing_period, status, unit_id, tenants!inner(id, full_name, phone_number, landlord_id)")
+  .select("id, billing_period, status, unit_id, total_due, tenants!inner(id, full_name, phone_number, landlord_id)")
   .eq("id", invoiceId)
   .maybeSingle();
 
@@ -56,12 +56,26 @@ if (invoice.unit_id) {
   unitNumber = unitRow?.unit_number || "";
 }
 
+// The balance line tells the tenant whether this payment settled the
+// invoice or left a balance still owed - based on every payment recorded
+// against this invoice, not just the one just entered.
+const { data: invoicePayments } = await supabaseAdmin
+  .from("payments")
+  .select("amount_paid")
+  .eq("invoice_id", invoiceId);
+const totalPaid = (invoicePayments || []).reduce((sum, p: any) => sum + (Number(p.amount_paid) || 0), 0);
+const remaining = Number(invoice.total_due) - totalPaid;
+const balanceText = remaining <= 0
+  ? "Your rent is now fully paid."
+  : "Balance remaining: KSh " + remaining.toLocaleString() + ".";
+
 const result = await sendWhatsappTemplate(tenant.phone_number, "payment_confirmation", "en", [
   tenant.full_name || "there",
   Number(amountPaid).toLocaleString(),
   invoice.billing_period || "",
   unitNumber,
   (reference || "").toString().trim() || "-",
+  balanceText,
 ]);
 
 if (!result.ok) {

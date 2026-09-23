@@ -162,15 +162,21 @@ export async function POST(request: Request) {
 
     // Same best-effort WhatsApp confirmation as mpesa-callback - never
     // blocks or fails the webhook response if it errors, the payment is
-    // already recorded above regardless.
-    if (newStatus === "paid" && tenant.phone_number) {
+    // already recorded above regardless. Fires whether this payment fully
+    // settled the invoice or left a balance still owed.
+    if (tenant.phone_number) {
       try {
+        const remaining = Number(invoice.total_due) - totalPaid;
+        const balanceText = remaining <= 0
+          ? "Your rent is now fully paid."
+          : "Balance remaining: KSh " + remaining.toLocaleString() + ".";
         await sendWhatsappTemplate(tenant.phone_number, "payment_confirmation", "en", [
           tenant.full_name || "there",
           amount.toLocaleString(),
           period,
           unit.unit_number,
           mpesaRef,
+          balanceText,
         ]);
       } catch {
         // Best-effort only.
