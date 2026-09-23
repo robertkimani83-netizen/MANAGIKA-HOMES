@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
-import { sendWhatsappTemplate } from "@/lib/whatsapp";
+import { sendPaymentConfirmation, paymentBalanceText } from "@/lib/payment-confirmation";
 import { nairobiPeriod, nairobiDate } from "@/lib/period";
 
 export async function POST(request: Request) {
@@ -148,11 +148,12 @@ if (resultCode === 0) {
       const { error: statusUpdateError } = await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
       if (statusUpdateError) console.error("[mpesa-callback] could not update invoice status:", statusUpdateError.message, "invoice", invoice.id);
 
-      // Let the tenant know their payment was received over WhatsApp -
-      // whether it fully settled the invoice or left a balance still owed.
-      // This never blocks or fails the M-Pesa callback response itself:
-      // Safaricom needs a 200 back regardless, so any WhatsApp error is
-      // swallowed here.
+      // Let the tenant know their payment was received - on WhatsApp AND SMS,
+      // fired together (neither is a fallback for the other), whether it
+      // fully settled the invoice or left a balance still owed. This never
+      // blocks or fails the M-Pesa callback response itself: Safaricom needs
+      // a 200 back regardless, so any error on either channel is swallowed
+      // here.
       if (tenantPhoneNumber) {
         try {
           let unitNumber = "";
@@ -160,18 +161,17 @@ if (resultCode === 0) {
             const { data: unitRow } = await supabaseAdmin.from("units").select("unit_number").eq("id", unitId).maybeSingle();
             unitNumber = unitRow?.unit_number || "";
           }
-          const remaining = Number(invoice.total_due) - totalPaid;
-          const balanceText = remaining <= 0
-            ? "Your rent is now fully paid."
-            : "Balance remaining: KSh " + remaining.toLocaleString() + ".";
-          await sendWhatsappTemplate(tenantPhoneNumber, "payment_confirmation", "en", [
-            tenantFullName || "there",
-            Number(amount).toLocaleString(),
+          const balanceText = paymentBalanceText(invoice.total_due, totalPaid);
+          const { whatsapp, sms } = await sendPaymentConfirmation(tenantPhoneNumber, {
+            fullName: tenantFullName || "there",
+            amount: Number(amount).toLocaleString(),
             period,
             unitNumber,
-            mpesaReceiptNumber || "",
+            reference: mpesaReceiptNumber || "",
             balanceText,
-          ]);
+          });
+          if (!whatsapp.ok) console.error("[mpesa-callback] WhatsApp confirmation failed:", whatsapp.error, "tenant", tenantId);
+          if (!sms.ok) console.error("[mpesa-callback] SMS confirmation failed:", sms.error, "tenant", tenantId);
         } catch {
           // Best-effort only - the payment itself is already recorded above.
         }

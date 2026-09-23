@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createHmac } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
-import { sendWhatsappTemplate } from "@/lib/whatsapp";
+import { sendPaymentConfirmation, paymentBalanceText } from "@/lib/payment-confirmation";
 
 // Auto-confirms rent payments detected from Family Bank SMS forwarded off
 // mum's phone (paybill 222111, her personal Account 27833 - shared across
@@ -247,24 +247,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: "recorded_with_warnings" });
     }
 
-    // Same best-effort WhatsApp confirmation as mpesa-callback - never
-    // blocks or fails the webhook response if it errors, the payment is
-    // already recorded above regardless. Fires whether this payment fully
-    // settled the invoice or left a balance still owed.
+    // Same best-effort confirmation as mpesa-callback - on WhatsApp AND SMS,
+    // fired together, neither one a fallback for the other. Never blocks or
+    // fails the webhook response if either errors, the payment is already
+    // recorded above regardless. Fires whether this payment fully settled
+    // the invoice or left a balance still owed.
     if (tenant.phone_number) {
       try {
-        const remaining = Number(invoice.total_due) - totalPaid;
-        const balanceText = remaining <= 0
-          ? "Your rent is now fully paid."
-          : "Balance remaining: KSh " + remaining.toLocaleString() + ".";
-        await sendWhatsappTemplate(tenant.phone_number, "payment_confirmation", "en", [
-          tenant.full_name || "there",
-          amount.toLocaleString(),
+        const balanceText = paymentBalanceText(invoice.total_due, totalPaid);
+        const { whatsapp, sms } = await sendPaymentConfirmation(tenant.phone_number, {
+          fullName: tenant.full_name || "there",
+          amount: amount.toLocaleString(),
           period,
-          unit.unit_number,
-          mpesaRef,
+          unitNumber: unit.unit_number,
+          reference: mpesaRef,
           balanceText,
-        ]);
+        });
+        if (!whatsapp.ok || !sms.ok) {
+          await logUnmatched({
+            rawBody: rawBodyForLog,
+            sender: from,
+            messageText: text,
+            reason: "confirmation_send_failed: whatsapp=" + (whatsapp.ok ? "ok" : whatsapp.error) + " sms=" + (sms.ok ? "ok" : sms.error),
+            amount,
+            houseTag,
+            payerName,
+            mpesaRef,
+          });
+        }
       } catch {
         // Best-effort only.
       }
