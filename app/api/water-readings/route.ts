@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { nairobiPeriod } from "@/lib/period";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -17,9 +18,8 @@ async function getLandlordId(request: Request) {
 }
 
 function currentPeriod() {
-  const d = new Date();
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  return names[d.getMonth()] + " " + d.getFullYear();
+  // Kenya-time month (servers run in UTC) - see lib/period.ts.
+  return nairobiPeriod();
 }
 
 // water_readings has no client-facing RLS policies on purpose (see the
@@ -75,10 +75,14 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const tenantId = (body.tenantId || "").toString();
+  // An empty box must never count as a reading of 0 (Number("") and
+  // Number(null) are both 0), or it would overwrite the real reading and
+  // wreck next month's consumption.
+  const readingIsBlank = body.reading === null || body.reading === undefined || String(body.reading).trim() === "";
   const reading = Number(body.reading);
 
   if (!tenantId) return NextResponse.json({ error: "Missing tenantId" }, { status: 400 });
-  if (!Number.isFinite(reading) || reading < 0) {
+  if (readingIsBlank || !Number.isFinite(reading) || reading < 0) {
     return NextResponse.json({ error: "Please enter a valid meter reading." }, { status: 400 });
   }
 

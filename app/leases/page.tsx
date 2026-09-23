@@ -138,8 +138,9 @@ export default function LeasesPage() {
   function onTenantChange(id: string) {
     setTenantId(id);
     const t = tenants.find((x) => x.id === id);
-    if (t?.units?.base_rent) setMonthlyRent(String(t.units.base_rent));
-    if (t?.unit_id) setUnitIdForSelectedTenant(t.unit_id);
+    // Always overwrite (never keep the previous tenant's unit or rent).
+    setMonthlyRent(t?.units?.base_rent ? String(t.units.base_rent) : "");
+    setUnitIdForSelectedTenant(t?.unit_id || null);
   }
 
   async function createLease() {
@@ -160,7 +161,7 @@ export default function LeasesPage() {
     });
     setSaving(false);
     if (insertError) { setError(insertError.message); return; }
-    setTenantId(""); setMonthlyRent(""); setStartDate(""); setEndDate(""); setTermsText(DEFAULT_TERMS);
+    setTenantId(""); setUnitIdForSelectedTenant(null); setMonthlyRent(""); setStartDate(""); setEndDate(""); setTermsText(DEFAULT_TERMS);
     await loadLeases(landlordId);
     alert("Lease sent - it's now waiting for the tenant in their dashboard.");
   }

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { trPeriod, useTenantLang } from "@/lib/tenant-i18n";
+import { compressImageToJpeg } from "@/lib/image-compress";
 
 // Visual "how far along is this repair" tracker, matching the one on
 // the landlord's Maintenance page - submitted -> assigned -> in
@@ -15,12 +17,33 @@ const STAGES = [
   { key: "completed", label: "Completed", dot: "bg-green-500" },
 ];
 
-function StageTracker({ status }: { status: string }) {
+// What a tenant reads under each repair: which stage it is at, one plain
+// sentence about it, when it was reported and (once assigned) who the
+// technician is. The database keeps no date for each stage change, so only the
+// reported date is shown.
+const STAGE_NOTES: Record<string, string> = {
+  submitted: "We have received your request.",
+  assigned: "A technician has been assigned.",
+  in_progress: "Work is in progress.",
+  completed: "This repair is finished.",
+};
+
+function repairLines(m: any, tr: (t: string) => string) {
+  const stage = STAGES.find((s) => s.key === m.status);
+  const label = stage ? tr(stage.label) : String(m.status || "").replace("_", " ");
+  const note = STAGE_NOTES[m.status] ? tr(STAGE_NOTES[m.status]) : "";
+  let meta = tr("Reported") + " " + (m.created_at ? new Date(m.created_at).toLocaleDateString() : "—");
+  const tech = (m.technician_name || "").trim();
+  if (tech && m.status !== "submitted") meta += " · " + tr("Technician:") + " " + tech;
+  return { label, note, meta };
+}
+
+function StageTracker({ status, tr }: { status: string; tr: (t: string) => string }) {
   const currentIndex = STAGES.findIndex((s) => s.key === status);
   return (
     <div className="flex items-center gap-1">
       {STAGES.map((stage, i) => (
-        <span key={stage.key} className={"h-2.5 w-2.5 rounded-full " + (i <= currentIndex ? stage.dot : "bg-gray-200")} title={stage.label} />
+        <span key={stage.key} className={"h-2.5 w-2.5 rounded-full " + (i <= currentIndex ? stage.dot : "bg-gray-200")} title={tr(stage.label)} />
       ))}
     </div>
   );
@@ -34,6 +57,7 @@ function currentPeriod() {
 
 export default function TenantDashboard() {
   const router = useRouter();
+  const { lang, setLang, tr } = useTenantLang();
   const [loading, setLoading] = useState(true);
   const [tenant, setTenant] = useState<any>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -46,6 +70,8 @@ export default function TenantDashboard() {
   const [description, setDescription] = useState("");
   const [urgency, setUrgency] = useState("normal");
   const [complaintText, setComplaintText] = useState("");
+  const [complaintPhoto, setComplaintPhoto] = useState<File | null>(null);
+  const [submittingComplaint, setSubmittingComplaint] = useState(false);
   const [payingBalance, setPayingBalance] = useState(false);
   const [reportingPayment, setReportingPayment] = useState(false);
   const [paymentInfo, setPaymentInfo] = useState<any>({ mpesa_enabled: false, bank_enabled: false, has_pending_claim: false });
@@ -79,10 +105,10 @@ export default function TenantDashboard() {
     const { data: invoiceRows } = await supabase.from("invoices").select("id, billing_period, total_due, status, due_date").eq("tenant_id", tenantRow.id).order("due_date", { ascending: false });
     setInvoices(invoiceRows || []);
 
-    const { data: maintenanceRows } = await supabase.from("maintenance_requests").select("id, category, title, description, urgency, status, created_at").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
+    const { data: maintenanceRows } = await supabase.from("maintenance_requests").select("id, category, title, description, urgency, status, technician_name, created_at").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
     setMaintenance(maintenanceRows || []);
 
-    const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
+    const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at, photo_path").eq("tenant_id", tenantRow.id).order("created_at", { ascending: false });
     setComplaints(complaintRows || []);
 
     // Most recent payment, for the "My Home" summary card.
@@ -154,33 +180,58 @@ export default function TenantDashboard() {
   const token = sessionData.session?.access_token || "";
   const res = await fetch("/api/documents/" + id + "/url", { headers: { Authorization: "Bearer " + token } });
   const result = await res.json();
-  if (!res.ok) { alert("Could not open document: " + (result.error || "unknown error")); return; }
+  if (!res.ok) { alert(tr("Could not open document: ") + (result.error || "unknown error")); return; }
   window.open(result.url, "_blank");
   }
 
   async function submitMaintenance() {
   if (!tenant) return;
-  if (!title.trim() || !description.trim()) { alert("Please fill in the title and description."); return; }
+  if (!tenant.unit_id) { alert(tr("You don't have a unit assigned yet, so your landlord would not see this. Please ask your landlord to assign your unit first.")); return; }
+  if (!title.trim() || !description.trim()) { alert(tr("Please fill in the title and description.")); return; }
   const { error } = await supabase.from("maintenance_requests").insert({ tenant_id: tenant.id, unit_id: tenant.unit_id, category, title: title.trim(), description: description.trim(), urgency, status: "submitted" });
-  if (error) { alert("Error submitting request: " + error.message); return; }
+  if (error) { alert(tr("Error submitting request: ") + error.message); return; }
   setTitle(""); setDescription(""); setCategory("plumbing"); setUrgency("normal"); setShowMaintForm(false);
-  const { data: maintenanceRows } = await supabase.from("maintenance_requests").select("id, category, title, description, urgency, status, created_at").eq("tenant_id", tenant.id).order("created_at", { ascending: false });
+  const { data: maintenanceRows } = await supabase.from("maintenance_requests").select("id, category, title, description, urgency, status, technician_name, created_at").eq("tenant_id", tenant.id).order("created_at", { ascending: false });
   setMaintenance(maintenanceRows || []);
   }
 
   async function submitComplaint() {
-  if (!tenant) return;
-  if (!complaintText.trim()) { alert("Please describe your complaint."); return; }
-  const { error } = await supabase.from("complaints").insert({ tenant_id: tenant.id, unit_id: tenant.unit_id, description: complaintText.trim(), status: "submitted" });
-  if (error) { alert("Error submitting complaint: " + error.message); return; }
-  setComplaintText(""); setShowComplaintForm(false);
-  const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at").eq("tenant_id", tenant.id).order("created_at", { ascending: false });
+  if (!tenant || submittingComplaint) return;
+  if (!tenant.unit_id) { alert(tr("You don't have a unit assigned yet, so your landlord would not see this. Please ask your landlord to assign your unit first.")); return; }
+  if (!complaintText.trim()) { alert(tr("Please describe your complaint.")); return; }
+  setSubmittingComplaint(true);
+  try {
+  // The photo (if any) is shrunk on the phone, then stored privately; only its
+  // path is saved on the complaint.
+  let photoPath: string | null = null;
+  if (complaintPhoto) {
+    try {
+      const jpeg = await compressImageToJpeg(complaintPhoto);
+      const form = new FormData();
+      form.append("file", jpeg, "photo.jpg");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uploadRes = await fetch("/api/complaints/photo", { method: "POST", headers: { Authorization: "Bearer " + (sessionData.session?.access_token || "") }, body: form });
+      const uploadResult = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !uploadResult.path) { alert(tr("Could not attach the photo: ") + (uploadResult.error || "unknown error")); return; }
+      photoPath = uploadResult.path;
+    } catch (e) {
+      alert(tr("Could not attach the photo: ") + tr("Please choose a photo file."));
+      return;
+    }
+  }
+  const { error } = await supabase.from("complaints").insert({ tenant_id: tenant.id, unit_id: tenant.unit_id, description: complaintText.trim(), status: "submitted", photo_path: photoPath });
+  if (error) { alert(tr("Error submitting complaint: ") + error.message); return; }
+  setComplaintText(""); setComplaintPhoto(null); setShowComplaintForm(false);
+  const { data: complaintRows } = await supabase.from("complaints").select("id, description, status, created_at, photo_path").eq("tenant_id", tenant.id).order("created_at", { ascending: false });
   setComplaints(complaintRows || []);
+  } finally {
+  setSubmittingComplaint(false);
+  }
   }
 
   async function payWithMpesa() {
-  if (!tenant || !tenant.phone_number || !tenant.units) { alert("Missing phone number or unit information."); return; }
-  if (!authToken) { alert("Your session expired - please refresh and log in again."); return; }
+  if (!tenant || !tenant.phone_number || !tenant.units) { alert(tr("Missing phone number or unit information.")); return; }
+  if (!authToken) { alert(tr("Your session expired - please refresh and log in again.")); return; }
   setPayingBalance(true);
   try {
   const res = await fetch("/api/mpesa-stk-push", {
@@ -192,19 +243,19 @@ export default function TenantDashboard() {
   });
   const result = await res.json();
   if (result.ResponseCode === "0") {
-  alert("Check your phone to complete the M-Pesa payment.");
+  alert(tr("Check your phone to complete the M-Pesa payment."));
   } else {
-  alert("Payment could not be started: " + (result.errorMessage || result.error || "unknown error"));
+  alert(tr("Payment could not be started: ") + (result.errorMessage || result.error || "unknown error"));
   }
   } catch (err: any) {
-  alert("Error starting payment: " + err.message);
+  alert(tr("Error starting payment: ") + err.message);
   } finally {
   setPayingBalance(false);
   }
   }
 
   async function reportPayment(method: string) {
-  if (!authToken) { alert("Your session expired - please refresh and log in again."); return; }
+  if (!authToken) { alert(tr("Your session expired - please refresh and log in again.")); return; }
   setReportingPayment(true);
   try {
   const res = await fetch("/api/tenants/report-payment", {
@@ -213,10 +264,10 @@ export default function TenantDashboard() {
   body: JSON.stringify({ method }),
   });
   const result = await res.json();
-  if (!res.ok) { alert("Could not notify your landlord: " + (result.error || "unknown error")); return; }
+  if (!res.ok) { alert(tr("Could not notify your landlord: ") + (result.error || "unknown error")); return; }
   setPaymentInfo((prev: any) => ({ ...prev, has_pending_claim: true }));
   } catch (err: any) {
-  alert("Error: " + err.message);
+  alert(tr("Error: ") + err.message);
   } finally {
   setReportingPayment(false);
   }
@@ -228,10 +279,11 @@ export default function TenantDashboard() {
   }
 
   if (loading || !tenant) {
-  return (<main className="min-h-screen bg-gray-100 flex items-center justify-center text-gray-500">Loading your account...</main>);
+  return (<main className="min-h-screen bg-gray-100 flex items-center justify-center text-gray-500">{tr("Loading your account...")}</main>);
   }
 
   const period = currentPeriod();
+  const periodStatusLabel = lang === "sw" ? "Hali ya " + trPeriod(lang, period) : period + " Status";
   const currentInvoice = invoices.find((inv) => inv.billing_period === period);
 
   return (
@@ -240,27 +292,32 @@ export default function TenantDashboard() {
   <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
   <div>
   <h1 className="text-2xl font-bold text-gray-900">MANAGIKA HOMES</h1>
-  <p className="text-sm text-gray-500">Tenant Portal</p>
+  <p className="text-sm text-gray-500">{tr("Tenant Portal")}</p>
   </div>
   <div className="flex items-center gap-3">
-  <a href="/tenant/ai-assistant" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">🤖 AI Assistant</a>
-  <a href="/tenant/lease" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">📄 My Lease</a>
-  <a href="https://wa.me/97431502816?text=Hi%20Managika%20Homes%2C%20I%27m%20a%20tenant%20and%20need%20help%20with%3A%20" target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">💬 Chat on WhatsApp</a>
-  <a href="/download-app" className="mh-hide-in-app px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">📲 Get App</a>
-  <button onClick={signOut} className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">Sign Out</button>
+  <a href="/tenant/ai-assistant" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("🤖 AI Assistant")}</a>
+  <a href="/tenant/lease" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("📄 My Lease")}</a>
+  <a href="/tenant/statement" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("🧾 My Statement")}</a>
+  <a href="https://wa.me/97431502816?text=Hi%20Managika%20Homes%2C%20I%27m%20a%20tenant%20and%20need%20help%20with%3A%20" target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("💬 Chat on WhatsApp")}</a>
+  <a href="/download-app" className="mh-hide-in-app px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("📲 Get App")}</a>
+  <div className="flex gap-1 text-xs font-semibold">
+  <button onClick={() => setLang("en")} className={"rounded-full px-3 py-1.5 " + (lang === "en" ? "bg-gray-900 text-white" : "border border-gray-300 bg-white text-gray-600")}>English</button>
+  <button onClick={() => setLang("sw")} className={"rounded-full px-3 py-1.5 " + (lang === "sw" ? "bg-gray-900 text-white" : "border border-gray-300 bg-white text-gray-600")}>Kiswahili</button>
+  </div>
+  <button onClick={signOut} className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700">{tr("Sign Out")}</button>
   </div>
   </div>
   </header>
 
     <section className="max-w-5xl mx-auto px-6 py-8">
       <div className="mb-8">
-        <h2 className="text-3xl font-bold text-gray-900">Welcome, {tenant.full_name}</h2>
-        <p className="text-gray-500 mt-1">{tenant.units ? tenant.units.properties?.property_name + " — Unit " + tenant.units.unit_number : "No unit assigned yet"}</p>
+        <h2 className="text-3xl font-bold text-gray-900">{tr("Welcome,")} {tenant.full_name}</h2>
+        <p className="text-gray-500 mt-1">{tenant.units ? tenant.units.properties?.property_name + " — " + tr("Unit") + " " + tenant.units.unit_number : tr("No unit assigned yet")}</p>
       </div>
 
       {notices.length > 0 && (
         <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">📣 Notices</h3>
+          <h3 className="mb-4 text-lg font-semibold text-gray-900">{tr("📣 Notices")}</h3>
           <div className="divide-y">
             {notices.map((n) => (
               <div key={n.id} className="py-3 first:pt-0 last:pb-0">
@@ -280,26 +337,26 @@ export default function TenantDashboard() {
           summary before the detailed tables further down. */}
       {tenant.units && (
         <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">🏠 My Home</h3>
+          <h3 className="mb-4 text-lg font-semibold text-gray-900">{tr("🏠 My Home")}</h3>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-400">Unit</p>
+              <p className="text-xs uppercase tracking-wide text-gray-400">{tr("Unit")}</p>
               <p className="mt-1 font-semibold text-gray-900">{tenant.units.unit_number}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-400">Rent</p>
+              <p className="text-xs uppercase tracking-wide text-gray-400">{tr("Rent")}</p>
               <p className="mt-1 font-semibold text-gray-900">KSh {Number(tenant.units.base_rent).toLocaleString()}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-400">{period} Status</p>
+              <p className="text-xs uppercase tracking-wide text-gray-400">{periodStatusLabel}</p>
               <p className={"mt-1 font-semibold capitalize " + (currentInvoice?.status === "paid" ? "text-green-700" : "text-amber-700")}>
-                {currentInvoice ? currentInvoice.status.replace("_", " ") : "No invoice yet"}
+                {currentInvoice ? tr(currentInvoice.status.replace("_", " ")) : tr("No invoice yet")}
               </p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-400">Last Payment</p>
+              <p className="text-xs uppercase tracking-wide text-gray-400">{tr("Last Payment")}</p>
               <p className="mt-1 font-semibold text-gray-900">
-                {lastPayment ? "KSh " + lastPayment.amount.toLocaleString() + (lastPayment.paidAt ? " · " + new Date(lastPayment.paidAt).toLocaleDateString() : "") : "None yet"}
+                {lastPayment ? "KSh " + lastPayment.amount.toLocaleString() + (lastPayment.paidAt ? " · " + new Date(lastPayment.paidAt).toLocaleDateString() : "") : tr("None yet")}
               </p>
             </div>
           </div>
@@ -308,63 +365,71 @@ export default function TenantDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
         <div className="bg-white rounded-xl p-6 border shadow-sm">
-          <p className="text-sm text-gray-500">Monthly Rent</p>
+          <p className="text-sm text-gray-500">{tr("Monthly Rent")}</p>
           <p className="text-3xl font-bold mt-2">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</p>
         </div>
         <div className="bg-white rounded-xl p-6 border shadow-sm">
-          <p className="text-sm text-gray-500">{period} Status</p>
-          <p className="text-3xl font-bold mt-2 capitalize">{currentInvoice ? currentInvoice.status.replace("_", " ") : "No invoice yet"}</p>
+          <p className="text-sm text-gray-500">{periodStatusLabel}</p>
+          <p className="text-3xl font-bold mt-2 capitalize">{currentInvoice ? tr(currentInvoice.status.replace("_", " ")) : tr("No invoice yet")}</p>
           {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.mpesa_enabled && (
             <button onClick={payWithMpesa} disabled={payingBalance} className="mt-4 w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
-              {payingBalance ? "Starting..." : "Pay with M-Pesa"}
+              {payingBalance ? tr("Starting...") : tr("Pay with M-Pesa")}
             </button>
+          )}
+          {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.paybill_enabled && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-left text-sm">
+              <p className="font-semibold text-gray-700">{tr("Pay via M-Pesa Paybill:")}</p>
+              <p className="text-gray-700">{tr("Business Number:")} <span className="font-semibold">{paymentInfo.paybill_number}</span></p>
+              <p className="text-gray-700">{tr("Account Number:")} <span className="font-semibold">{paymentInfo.paybill_account}</span></p>
+              <p className="mt-1 text-xs text-gray-500">{tr("Use this account number exactly, so your payment is matched to your home.")}</p>
+            </div>
           )}
           {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.manual_mpesa_enabled && (
             <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-left text-sm">
-              <p className="font-semibold text-gray-700">Pay via M-Pesa:</p>
-              <p className="text-gray-600">{paymentInfo.manual_mpesa_type === "till" ? "Till Number" : "Phone Number"}: {paymentInfo.manual_mpesa_number}</p>
+              <p className="font-semibold text-gray-700">{tr("Pay via M-Pesa:")}</p>
+              <p className="text-gray-600">{paymentInfo.manual_mpesa_type === "till" ? tr("Till Number") : tr("Phone Number")}: {paymentInfo.manual_mpesa_number}</p>
               {paymentInfo.manual_mpesa_name && <p className="text-gray-600">{paymentInfo.manual_mpesa_name}</p>}
-              <p className="mt-1 text-xs text-gray-500">After paying, tap below to let your landlord know.</p>
+              <p className="mt-1 text-xs text-gray-500">{tr("After paying, tap below to let your landlord know.")}</p>
               {paymentInfo.has_pending_claim ? (
-                <p className="mt-2 text-xs font-semibold text-amber-600">✓ Marked as paid - waiting for your landlord to confirm.</p>
+                <p className="mt-2 text-xs font-semibold text-amber-600">{tr("✓ Marked as paid - waiting for your landlord to confirm.")}</p>
               ) : (
                 <button onClick={() => reportPayment("manual_mpesa")} disabled={reportingPayment} className="mt-2 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
-                  {reportingPayment ? "Notifying..." : "I've Paid"}
+                  {reportingPayment ? tr("Notifying...") : tr("I've Paid")}
                 </button>
               )}
             </div>
           )}
           {currentInvoice?.status !== "paid" && tenant.units && paymentInfo.bank_enabled && (
             <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-left text-sm">
-              <p className="font-semibold text-gray-700">Pay by bank transfer:</p>
+              <p className="font-semibold text-gray-700">{tr("Pay by bank transfer:")}</p>
               <p className="text-gray-600">{paymentInfo.bank_name}</p>
               <p className="text-gray-600">{paymentInfo.bank_account_name}</p>
-              <p className="text-gray-600">Acc: {paymentInfo.bank_account_number}</p>
-              {paymentInfo.bank_branch && <p className="text-gray-600">Branch: {paymentInfo.bank_branch}</p>}
-              <p className="mt-1 text-xs text-gray-500">After transferring, tap below to let your landlord know.</p>
+              <p className="text-gray-600">{tr("Acc:")} {paymentInfo.bank_account_number}</p>
+              {paymentInfo.bank_branch && <p className="text-gray-600">{tr("Branch:")} {paymentInfo.bank_branch}</p>}
+              <p className="mt-1 text-xs text-gray-500">{tr("After transferring, tap below to let your landlord know.")}</p>
               {paymentInfo.has_pending_claim ? (
-                <p className="mt-2 text-xs font-semibold text-amber-600">✓ Marked as paid - waiting for your landlord to confirm.</p>
+                <p className="mt-2 text-xs font-semibold text-amber-600">{tr("✓ Marked as paid - waiting for your landlord to confirm.")}</p>
               ) : (
                 <button onClick={() => reportPayment("bank")} disabled={reportingPayment} className="mt-2 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
-                  {reportingPayment ? "Notifying..." : "I've Paid"}
+                  {reportingPayment ? tr("Notifying...") : tr("I've Paid")}
                 </button>
               )}
             </div>
           )}
-          {currentInvoice?.status !== "paid" && tenant.units && !paymentInfo.mpesa_enabled && !paymentInfo.manual_mpesa_enabled && !paymentInfo.bank_enabled && (
-            <p className="mt-4 text-sm text-gray-500">Online payment isn't set up yet - please contact your landlord directly to pay rent.</p>
+          {currentInvoice?.status !== "paid" && tenant.units && !paymentInfo.mpesa_enabled && !paymentInfo.manual_mpesa_enabled && !paymentInfo.bank_enabled && !paymentInfo.paybill_enabled && (
+            <p className="mt-4 text-sm text-gray-500">{tr("Online payment isn't set up yet - please contact your landlord directly to pay rent.")}</p>
           )}
         </div>
         <div className="bg-white rounded-xl p-6 border shadow-sm">
-          <p className="text-sm text-gray-500">Open Maintenance</p>
+          <p className="text-sm text-gray-500">{tr("Open Maintenance")}</p>
           <p className="text-3xl font-bold mt-2">{maintenance.filter((m) => m.status !== "completed").length}</p>
         </div>
       </div>
 
       <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">📄 My Documents</h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">{tr("📄 My Documents")}</h3>
         {myDocuments.length === 0 ? (
-          <p className="text-gray-500 text-sm">Your landlord hasn&apos;t shared any documents with you yet.</p>
+          <p className="text-gray-500 text-sm">{tr("Your landlord hasn't shared any documents with you yet.")}</p>
         ) : (
           <div className="divide-y">
             {myDocuments.map((d) => (
@@ -373,7 +438,7 @@ export default function TenantDashboard() {
                   <p className="font-medium text-gray-900">{d.file_name}</p>
                   <p className="text-xs text-gray-500 capitalize">{d.document_type.replace("_", " ")} · {new Date(d.uploaded_at).toLocaleDateString()}</p>
                 </div>
-                <button onClick={() => viewMyDocument(d.id)} className="text-sm text-blue-700 hover:underline shrink-0">View</button>
+                <button onClick={() => viewMyDocument(d.id)} className="text-sm text-blue-700 hover:underline shrink-0">{tr("View")}</button>
               </div>
             ))}
           </div>
@@ -381,13 +446,13 @@ export default function TenantDashboard() {
       </div>
 
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden mb-8">
-        <div className="px-6 py-5 border-b"><h3 className="text-xl font-semibold">My Invoices</h3></div>
+        <div className="px-6 py-5 border-b"><h3 className="text-xl font-semibold">{tr("My Invoices")}</h3></div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Period</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Amount</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Due Date</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Status</th></tr></thead>
+            <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Period")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Amount")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Due Date")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Status")}</th></tr></thead>
             <tbody>
-              {invoices.length === 0 ? (<tr><td colSpan={4} className="px-6 py-10 text-center text-gray-500">No invoices yet.</td></tr>) : (
-                invoices.map((inv) => (<tr key={inv.id} className="border-t"><td className="px-6 py-4">{inv.billing_period}</td><td className="px-6 py-4">KSh {Number(inv.total_due).toLocaleString()}</td><td className="px-6 py-4">{inv.due_date}</td><td className="px-6 py-4 capitalize">{inv.status.replace("_", " ")}</td></tr>))
+              {invoices.length === 0 ? (<tr><td colSpan={4} className="px-6 py-10 text-center text-gray-500">{tr("No invoices yet.")}</td></tr>) : (
+                invoices.map((inv) => (<tr key={inv.id} className="border-t"><td className="px-6 py-4">{trPeriod(lang, inv.billing_period)}</td><td className="px-6 py-4">KSh {Number(inv.total_due).toLocaleString()}</td><td className="px-6 py-4">{inv.due_date}</td><td className="px-6 py-4 capitalize">{tr(inv.status.replace("_", " "))}</td></tr>))
               )}
             </tbody>
           </table>
@@ -395,19 +460,20 @@ export default function TenantDashboard() {
       </div>
 
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden mb-8">
-        <div className="px-6 py-5 border-b"><h3 className="text-xl font-semibold">Payment History</h3></div>
+        <div className="px-6 py-5 border-b"><h3 className="text-xl font-semibold">{tr("Payment History")}</h3></div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Date</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Period</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Amount</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Method</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Reference</th></tr></thead>
+            <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Date")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Period")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Amount")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Method")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Reference")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Receipt")}</th></tr></thead>
             <tbody>
-              {paymentHistory.length === 0 ? (<tr><td colSpan={5} className="px-6 py-10 text-center text-gray-500">No payments recorded yet.</td></tr>) : (
+              {paymentHistory.length === 0 ? (<tr><td colSpan={6} className="px-6 py-10 text-center text-gray-500">{tr("No payments recorded yet.")}</td></tr>) : (
                 paymentHistory.map((p) => (
                   <tr key={p.id} className="border-t">
                     <td className="px-6 py-4">{p.paidAt ? new Date(p.paidAt).toLocaleDateString() : "—"}</td>
-                    <td className="px-6 py-4">{p.period}</td>
+                    <td className="px-6 py-4">{trPeriod(lang, p.period)}</td>
                     <td className="px-6 py-4">KSh {p.amount.toLocaleString()}</td>
-                    <td className="px-6 py-4 capitalize">{p.method}</td>
+                    <td className="px-6 py-4 capitalize">{tr(String(p.method).replace("_", " "))}</td>
                     <td className="px-6 py-4 text-gray-500">{p.reference || "—"}</td>
+                    <td className="px-6 py-4"><a href={"/tenant/receipt?id=" + p.id} className="text-sm font-medium text-blue-700 hover:underline">{tr("Receipt")}</a></td>
                   </tr>
                 ))
               )}
@@ -418,58 +484,63 @@ export default function TenantDashboard() {
 
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden mb-8">
         <div className="px-6 py-5 border-b flex items-center justify-between">
-          <h3 className="text-xl font-semibold">My Maintenance Requests</h3>
-          <button onClick={() => setShowMaintForm(true)} className="px-4 py-2 rounded-lg bg-black text-white text-sm font-medium">+ New Request</button>
+          <h3 className="text-xl font-semibold">{tr("My Maintenance Requests")}</h3>
+          <button onClick={() => setShowMaintForm(true)} className="px-4 py-2 rounded-lg bg-black text-white text-sm font-medium">{tr("+ New Request")}</button>
         </div>
 
         {showMaintForm && (
           <div className="p-6 border-b bg-gray-50">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Category</label>
+                <label className="mb-2 block text-sm font-medium text-gray-700">{tr("Category")}</label>
                 <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black">
-                  <option value="plumbing">Plumbing</option><option value="electrical">Electrical</option><option value="structural">Structural</option><option value="other">Other</option>
+                  <option value="plumbing">{tr("Plumbing")}</option><option value="electrical">{tr("Electrical")}</option><option value="structural">{tr("Structural")}</option><option value="other">{tr("Other")}</option>
                 </select>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Urgency</label>
+                <label className="mb-2 block text-sm font-medium text-gray-700">{tr("Urgency")}</label>
                 <select value={urgency} onChange={(e) => setUrgency(e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black">
-                  <option value="normal">Normal</option><option value="urgent">Urgent</option>
+                  <option value="normal">{tr("Normal")}</option><option value="urgent">{tr("Urgent")}</option>
                 </select>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Short Title</label>
-                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Kitchen sink leaking" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">{tr("Short Title")}</label>
+                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={tr("e.g. Kitchen sink leaking")} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Description</label>
-                <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the issue" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">{tr("Description")}</label>
+                <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={tr("Describe the issue")} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
               </div>
             </div>
             <div className="mt-4 flex gap-3">
-              <button onClick={submitMaintenance} className="rounded-lg bg-black px-5 py-3 font-medium text-white">Submit Request</button>
-              <button onClick={() => setShowMaintForm(false)} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700">Cancel</button>
+              <button onClick={submitMaintenance} className="rounded-lg bg-black px-5 py-3 font-medium text-white">{tr("Submit Request")}</button>
+              <button onClick={() => setShowMaintForm(false)} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700">{tr("Cancel")}</button>
             </div>
           </div>
         )}
 
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Issue</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Urgency</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Status</th></tr></thead>
+            <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Issue")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Urgency")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Status")}</th></tr></thead>
             <tbody>
-              {maintenance.length === 0 ? (<tr><td colSpan={3} className="px-6 py-10 text-center text-gray-500">No maintenance requests yet.</td></tr>) : (
-                maintenance.map((m) => (
-                  <tr key={m.id} className="border-t">
-                    <td className="px-6 py-4"><div className="font-medium">{m.title}</div><div className="text-sm text-gray-500">{m.description}</div></td>
-                    <td className="px-6 py-4 capitalize">{m.urgency}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <StageTracker status={m.status} />
-                        <span className="text-sm capitalize text-gray-600">{m.status.replace("_", " ")}</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+              {maintenance.length === 0 ? (<tr><td colSpan={3} className="px-6 py-10 text-center text-gray-500">{tr("No maintenance requests yet.")}</td></tr>) : (
+                maintenance.map((m) => {
+                  const lines = repairLines(m, tr);
+                  return (
+                    <tr key={m.id} className="border-t">
+                      <td className="px-6 py-4"><div className="font-medium">{m.title}</div><div className="text-sm text-gray-500">{m.description}</div></td>
+                      <td className="px-6 py-4 capitalize">{tr(String(m.urgency))}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <StageTracker status={m.status} tr={tr} />
+                          <span className="text-sm font-medium text-gray-700">{lines.label}</span>
+                        </div>
+                        {lines.note && <p className="mt-1 text-xs text-gray-600">{lines.note}</p>}
+                        <p className="text-xs text-gray-400">{lines.meta}</p>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -478,27 +549,32 @@ export default function TenantDashboard() {
 
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="px-6 py-5 border-b flex items-center justify-between">
-          <h3 className="text-xl font-semibold">My Complaints</h3>
-          <button onClick={() => setShowComplaintForm(true)} className="px-4 py-2 rounded-lg bg-black text-white text-sm font-medium">+ New Complaint</button>
+          <h3 className="text-xl font-semibold">{tr("My Complaints")}</h3>
+          <button onClick={() => setShowComplaintForm(true)} className="px-4 py-2 rounded-lg bg-black text-white text-sm font-medium">{tr("+ New Complaint")}</button>
         </div>
 
         {showComplaintForm && (
           <div className="p-6 border-b bg-gray-50">
-            <label className="mb-2 block text-sm font-medium text-gray-700">Describe your complaint</label>
-            <textarea value={complaintText} onChange={(e) => setComplaintText(e.target.value)} rows={3} placeholder="e.g. Noisy neighbor at night" className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            <label className="mb-2 block text-sm font-medium text-gray-700">{tr("Describe your complaint")}</label>
+            <textarea value={complaintText} onChange={(e) => setComplaintText(e.target.value)} rows={3} placeholder={tr("e.g. Noisy neighbor at night")} className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-black" />
+            <label className="mt-4 mb-2 block text-sm font-medium text-gray-700">{tr("Photo (optional)")}</label>
+            <div className="flex flex-wrap items-center gap-3">
+              <input type="file" accept="image/*" onChange={(e) => setComplaintPhoto(e.target.files?.[0] || null)} className="text-sm text-gray-600" />
+              {complaintPhoto && <button type="button" onClick={() => setComplaintPhoto(null)} className="text-sm text-gray-600 underline">{tr("Remove photo")}</button>}
+            </div>
             <div className="mt-4 flex gap-3">
-              <button onClick={submitComplaint} className="rounded-lg bg-black px-5 py-3 font-medium text-white">Submit Complaint</button>
-              <button onClick={() => setShowComplaintForm(false)} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700">Cancel</button>
+              <button onClick={submitComplaint} disabled={submittingComplaint} className="rounded-lg bg-black px-5 py-3 font-medium text-white disabled:opacity-50">{submittingComplaint ? tr("Submitting...") : tr("Submit Complaint")}</button>
+              <button onClick={() => { setShowComplaintForm(false); setComplaintPhoto(null); }} className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700">{tr("Cancel")}</button>
             </div>
           </div>
         )}
 
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Complaint</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">Status</th></tr></thead>
+            <thead className="bg-gray-50"><tr><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Complaint")}</th><th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">{tr("Status")}</th></tr></thead>
             <tbody>
-              {complaints.length === 0 ? (<tr><td colSpan={2} className="px-6 py-10 text-center text-gray-500">No complaints yet.</td></tr>) : (
-                complaints.map((c) => (<tr key={c.id} className="border-t"><td className="px-6 py-4">{c.description}</td><td className="px-6 py-4 capitalize">{c.status.replace("_", " ")}</td></tr>))
+              {complaints.length === 0 ? (<tr><td colSpan={2} className="px-6 py-10 text-center text-gray-500">{tr("No complaints yet.")}</td></tr>) : (
+                complaints.map((c) => (<tr key={c.id} className="border-t"><td className="px-6 py-4">{c.description}{c.photo_path && <span className="ml-2 text-xs text-gray-500">{tr("📷 Photo attached")}</span>}</td><td className="px-6 py-4 capitalize">{tr(c.status.replace("_", " "))}</td></tr>))
               )}
             </tbody>
           </table>
@@ -507,7 +583,7 @@ export default function TenantDashboard() {
     </section>
 
     <footer className="border-t bg-white mt-10">
-      <div className="max-w-5xl mx-auto px-6 py-6 text-sm text-gray-500">© 2026 Managika Homes. Property management made simple.</div>
+      <div className="max-w-5xl mx-auto px-6 py-6 text-sm text-gray-500">{tr("© 2026 Managika Homes. Property management made simple.")}</div>
     </footer>
   </main>
 

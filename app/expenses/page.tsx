@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { downloadCsv, todayForFileName } from "@/lib/csv";
 
 // Not double-entry accounting - a landlord asked "can you at least show me
 // income vs. expenses, not just money coming in" and this is the honest,
@@ -12,6 +13,13 @@ import { supabase } from "@/lib/supabase";
 // the app's two lightweight stand-ins for real accounting software.
 
 const CATEGORIES = ["maintenance", "utilities", "staff", "insurance", "taxes", "supplies", "other"];
+
+// Today's date in the browser's own (local) time zone. toISOString() is UTC,
+// which is 3 hours behind Kenya/Qatar, so between midnight and 3 a.m. it
+// still says "yesterday" - and on the 1st, "last month".
+function localDateString(d: Date = new Date()) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
 
 function currentPeriod() {
   const d = new Date();
@@ -35,7 +43,7 @@ export default function ExpensesPage() {
   const [category, setCategory] = useState("maintenance");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [expenseDate, setExpenseDate] = useState(() => localDateString());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,7 +113,8 @@ export default function ExpensesPage() {
   async function deleteExpense(id: string) {
     if (!landlordId) return;
     if (!confirm("Delete this expense?")) return;
-    await supabase.from("expenses").delete().eq("id", id).eq("landlord_id", landlordId);
+    const { error: deleteError } = await supabase.from("expenses").delete().eq("id", id).eq("landlord_id", landlordId);
+    if (deleteError) { alert("Could not delete this expense: " + deleteError.message); return; }
     await loadExpenses(landlordId);
   }
 
@@ -190,7 +199,23 @@ export default function ExpensesPage() {
         </div>
 
         <div className="bg-white rounded-xl border shadow-sm p-6">
-          <h3 className="text-xl font-semibold mb-4">All expenses</h3>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h3 className="text-xl font-semibold">All expenses</h3>
+            {expenses.length > 0 && (
+              <button
+                onClick={() =>
+                  downloadCsv(
+                    "managika-expenses-" + todayForFileName() + ".csv",
+                    ["Date", "Property", "Category", "Description", "Amount (KSh)"],
+                    expenses.map((e) => [e.expense_date, e.properties?.property_name || "All", e.category, e.description || "", Number(e.amount) || 0])
+                  )
+                }
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                ⬇ Download CSV
+              </button>
+            )}
+          </div>
           {expenses.length === 0 ? (
             <p className="text-gray-500">No expenses logged yet.</p>
           ) : (

@@ -45,7 +45,10 @@ export default function UnitListingEditor() {
         setDescription(listing.description || "");
         setContactPhone(listing.contact_phone || "");
         setIsPublished(listing.is_published);
-        setPhotoPaths(listing.photo_paths || []);
+        const existingPaths: string[] = listing.photo_paths || [];
+        setPhotoPaths(existingPaths);
+        // Build the preview links too, so photos and their delete buttons stay lined up.
+        setPhotoUrls(existingPaths.map((p) => supabase.storage.from("listing-photos").getPublicUrl(p).data.publicUrl));
       }
       setLoading(false);
     }

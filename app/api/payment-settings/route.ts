@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { cleanAccountPrefix, cleanPaybill } from "@/lib/paybill";
+import { cleanDueDay, toReminderRules } from "@/lib/reminder-rules";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -40,6 +42,10 @@ if (!data) {
     bank_account_name: "",
     bank_account_number: "",
     bank_branch: "",
+    paybill_number: "",
+    paybill_account: "",
+    reminder_due_day: 5,
+    reminder_penalties: true,
   });
 }
 
@@ -59,6 +65,10 @@ return NextResponse.json({
   bank_account_name: data.bank_account_name || "",
   bank_account_number: data.bank_account_number || "",
   bank_branch: data.bank_branch || "",
+  paybill_number: data.paybill_number || "",
+  paybill_account: data.paybill_account || "",
+  reminder_due_day: toReminderRules(data).dueDay,
+  reminder_penalties: toReminderRules(data).penalties,
 });
 }
 
@@ -67,6 +77,22 @@ const landlordId = await getLandlordId(request);
 if (!landlordId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
 const body = await request.json();
+
+// Paybill shown to tenants in reminders: 5-7 digits, or left empty. Reject a
+// bad number instead of quietly dropping it, so the landlord sees the mistake.
+const paybillRaw = String(body.paybill_number ?? "").trim();
+const paybillNumber = cleanPaybill(paybillRaw);
+if (paybillRaw && !paybillNumber) {
+  return NextResponse.json({ error: "The Paybill number should be 5 to 7 digits, like 222111." }, { status: 400 });
+}
+
+// Rent due day (1-28), or left empty for the 5th. Reject a bad value instead
+// of quietly dropping it.
+const dueDayRaw = String(body.reminder_due_day ?? "").trim();
+const dueDay = cleanDueDay(dueDayRaw);
+if (dueDayRaw && dueDay === null) {
+  return NextResponse.json({ error: "The rent due day should be a number from 1 to 28, like 5." }, { status: 400 });
+}
 
 const update: any = {
   landlord_id: landlordId,
@@ -82,8 +108,14 @@ const update: any = {
   bank_account_name: body.bank_account_name || null,
   bank_account_number: body.bank_account_number || null,
   bank_branch: body.bank_branch || null,
+  paybill_number: paybillNumber || null,
+  paybill_account: cleanAccountPrefix(body.paybill_account) || null,
+  reminder_due_day: dueDay,
   updated_at: new Date().toISOString(),
 };
+
+// Only change the penalties setting when the page sent it.
+if (typeof body.reminder_penalties === "boolean") update.reminder_penalties = body.reminder_penalties;
 
 if (body.mpesa_consumer_key) update.mpesa_consumer_key = body.mpesa_consumer_key;
 if (body.mpesa_consumer_secret) update.mpesa_consumer_secret = body.mpesa_consumer_secret;

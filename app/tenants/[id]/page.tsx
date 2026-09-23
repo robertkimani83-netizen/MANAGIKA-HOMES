@@ -81,7 +81,7 @@ async function loadInvoices() {
 
 async function saveMeterReading() {
   const reading = Number(meterReading);
-  if (!Number.isFinite(reading) || reading < 0) { setWaterMessage("Please enter a valid meter reading."); return; }
+  if (String(meterReading).trim() === "" || !Number.isFinite(reading) || reading < 0) { setWaterMessage("Please enter a valid meter reading."); return; }
   setSavingReading(true);
   setWaterMessage(null);
   const res = await authedFetch("/api/water-readings", {
@@ -196,11 +196,14 @@ const newUnitId = selectedUnitId || null;
 const { error: tenantError } = await supabase.from("tenants").update({ unit_id: newUnitId }).eq("id", tenantId).eq("landlord_id", landlordId);
 if (tenantError) { setUnitMessage("Error: " + tenantError.message); setSavingUnit(false); return; }
 
+const unitStatusErrors: string[] = [];
 if (previousUnitId && previousUnitId !== newUnitId) {
-  await supabase.from("units").update({ status: "vacant" }).eq("id", previousUnitId);
+  const { error: vacateError } = await supabase.from("units").update({ status: "vacant" }).eq("id", previousUnitId);
+  if (vacateError) unitStatusErrors.push(vacateError.message);
 }
 if (newUnitId) {
-  await supabase.from("units").update({ status: "occupied" }).eq("id", newUnitId);
+  const { error: occupyError } = await supabase.from("units").update({ status: "occupied" }).eq("id", newUnitId);
+  if (occupyError) unitStatusErrors.push(occupyError.message);
   // Take the unit off any public "For Rent" listing now that it has a
   // tenant again - no-op if it never had one.
   await supabase.from("unit_listings").update({ is_published: false }).eq("unit_id", newUnitId);
@@ -220,7 +223,7 @@ if (newUnitId) {
 setUnitOptions(options);
 await loadWaterReadings();
 
-setUnitMessage("Saved.");
+setUnitMessage(unitStatusErrors.length > 0 ? "Saved, but the unit's occupied/vacant status could not be updated (" + unitStatusErrors.join("; ") + "). Please check the Units page." : "Saved.");
 setSavingUnit(false);
 }
 
@@ -267,6 +270,7 @@ return (
     <div className="mb-8">
       <h2 className="text-3xl font-bold text-gray-900">{tenant.full_name}</h2>
       <p className="text-gray-500 mt-1">{tenant.units ? tenant.units.properties?.property_name + " — Unit " + tenant.units.unit_number : "No unit assigned"}</p>
+      <a href={"/tenants/" + tenant.id + "/statement"} className="mt-3 inline-block rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">🧾 Account Statement</a>
     </div>
 
     <div className="bg-white rounded-xl border shadow-sm p-6 mb-8">

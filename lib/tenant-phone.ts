@@ -30,3 +30,18 @@ export function phoneVariants(e164: string): string[] {
   const local = "0" + digits.slice(3); // 0XXXXXXXXX
   return [e164, digits, local];
 }
+
+// Local Kenyan format (0712345678 or 0110123456) from any accepted input, or
+// null if it is not a recognisable Kenyan number. This is the form stored for
+// tenants, because phoneVariants() above always includes it.
+export function toLocalPhone(input: string): string | null {
+  const e164 = normalizePhone(input);
+  return e164 ? "0" + e164.slice(4) : null;
+}
+
+// True when two phone numbers, written in any format, are the same number.
+export function samePhone(a: string, b: string): boolean {
+  const x = normalizePhone(a);
+  const y = normalizePhone(b);
+  return !!x && !!y && x === y;
+}

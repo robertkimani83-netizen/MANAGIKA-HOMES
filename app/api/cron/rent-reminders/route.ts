@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import AfricasTalking from "africastalking";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
-import { sendWhatsappTemplate } from "@/lib/whatsapp";
+import { sendRentReminderWhatsapp } from "@/lib/whatsapp";
+import { buildReminderSms } from "@/lib/reminder-sms";
+import { loadReminderSettings, type LandlordReminderSettings } from "@/lib/paybill-server";
+import { paybillAccount } from "@/lib/paybill";
+import { nairobiPeriod } from "@/lib/period";
 
 function currentPeriod() {
-const d = new Date();
-const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-return names[d.getMonth()] + " " + d.getFullYear();
+  // Kenya-time month (servers run in UTC) - see lib/period.ts.
+  return nairobiPeriod();
 }
 
 function toKenyanFormat(phone: string) {
@@ -28,11 +31,12 @@ return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 try {
 const period = currentPeriod();
 const today = new Date();
-const dueDate = new Date(today.getFullYear(), today.getMonth(), 5).toISOString().slice(0, 10);
+// Invoice due date for a landlord's due day (the 5th unless they set another).
+const dueDateFor = (day: number) => new Date(Date.UTC(today.getFullYear(), today.getMonth(), day)).toISOString().slice(0, 10);
 
 const { data: tenants, error: tenantsError } = await supabaseAdmin
   .from("tenants")
-  .select("id, full_name, phone_number, unit_id, units(id, unit_number, base_rent, status)")
+  .select("id, landlord_id, full_name, phone_number, unit_id, units(id, unit_number, base_rent, status)")
   .eq("status", "active");
 
 if (tenantsError) {
@@ -50,6 +54,8 @@ let remindersSent = 0;
 let whatsappSent = 0;
 let invoicesCreated = 0;
 const errors: string[] = [];
+// Each landlord's Paybill and due-day/penalty rules, looked up once and reused for all of their tenants.
+const settingsByLandlord = new Map<string, LandlordReminderSettings>();
 
 for (const tenant of (tenants || []) as any[]) {
   const unit = tenant.units;
@@ -57,6 +63,14 @@ for (const tenant of (tenants || []) as any[]) {
 
   const rent = Number(unit.base_rent) || 0;
   if (rent <= 0) continue;
+
+  const settings = await (async () => {
+    if (!tenant.landlord_id) return loadReminderSettings(null);
+    if (!settingsByLandlord.has(tenant.landlord_id)) settingsByLandlord.set(tenant.landlord_id, await loadReminderSettings(tenant.landlord_id));
+    return settingsByLandlord.get(tenant.landlord_id) as LandlordReminderSettings;
+  })();
+  const paybill = settings.paybill;
+  const dueDate = dueDateFor(settings.rules.dueDay);
 
   let invoiceId: string | null = null;
   let totalDue = rent;
@@ -114,16 +128,7 @@ for (const tenant of (tenants || []) as any[]) {
     continue;
   }
 
-  const message =
-    "Hi " +
-    tenant.full_name +
-    ", your rent of KSh " +
-    balance.toLocaleString() +
-    " for " +
-    period +
-    " (Unit " +
-    unit.unit_number +
-    ") is now due. Kindly pay by the 5th of the month to avoid penalties. View & pay: managikahomes.co.ke/tenant/login - Managika Homes";
+  const message = buildReminderSms({ fullName: tenant.full_name, balance, unitNumber: unit.unit_number, period, paybill, penalties: settings.rules.penalties });
 
   try {
     await sms.send({ to: [toKenyanFormat(tenant.phone_number)], message: message, ...(senderId ? { from: senderId } : {}) });
@@ -136,12 +141,15 @@ for (const tenant of (tenants || []) as any[]) {
   // template isn't approved yet or the send otherwise fails, that's logged
   // here but never blocks the SMS reminder above from having gone out.
   try {
-    const waResult = await sendWhatsappTemplate(tenant.phone_number, "rent_reminder", "en", [
-      tenant.full_name,
-      balance.toLocaleString(),
+    const waResult = await sendRentReminderWhatsapp(tenant.phone_number, {
+      name: tenant.full_name,
+      amount: balance.toLocaleString(),
       period,
-      unit.unit_number,
-    ]);
+      unit: unit.unit_number,
+      paybill: paybill ? paybill.paybill : undefined,
+      account: paybill ? paybillAccount(paybill, unit.unit_number) : undefined,
+      penalties: settings.rules.penalties,
+    });
     if (waResult.ok) {
       whatsappSent++;
     } else {

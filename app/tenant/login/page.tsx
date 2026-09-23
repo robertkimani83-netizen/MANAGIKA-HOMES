@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { useTenantLang } from "@/lib/tenant-i18n";
 
 // Normalizes a Kenyan phone number to E.164 (+254XXXXXXXXX) so it matches
 // the format Supabase Auth stores in auth.users.phone. Accepts the formats
@@ -31,6 +32,7 @@ function looksLikeEmail(value: string): boolean {
 
 export default function TenantLogin() {
   const router = useRouter();
+  const { lang, setLang, tr } = useTenantLang();
   const [mode, setMode] = useState("login");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -47,7 +49,7 @@ export default function TenantLogin() {
   async function handleLogin() {
     setError("");
     if (!identifier.trim() || !password) {
-      setError("Please enter your email or phone number, and your password.");
+      setError(tr("Please enter your email or phone number, and your password."));
       return;
     }
 
@@ -64,7 +66,7 @@ export default function TenantLogin() {
       const phone = normalizePhone(value);
       if (!phone) {
         setLoading(false);
-        setError("Enter a valid email address or phone number (e.g. 07XXXXXXXX).");
+        setError(tr("Enter a valid email address or phone number (e.g. 07XXXXXXXX)."));
         return;
       }
       ({ error: loginError } = await supabase.auth.signInWithPassword({
@@ -75,7 +77,7 @@ export default function TenantLogin() {
 
     setLoading(false);
     if (loginError) {
-      setError(loginError.message);
+      setError(tr(loginError.message));
       return;
     }
     router.push("/tenant/dashboard");
@@ -84,11 +86,11 @@ export default function TenantLogin() {
   async function handleSignup() {
     setError("");
     if (!identifier.trim() || !password) {
-      setError("Please enter your email or phone number, and a password.");
+      setError(tr("Please enter your email or phone number, and a password."));
       return;
     }
     if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+      setError(tr("Password must be at least 6 characters."));
       return;
     }
 
@@ -110,7 +112,7 @@ export default function TenantLogin() {
 
     if (!emailExists) {
       setLoading(false);
-      setError("This email is not registered as a tenant by your landlord. Please contact them first.");
+      setError(tr("This email is not registered as a tenant by your landlord. Please contact them first."));
       return;
     }
 
@@ -123,13 +125,13 @@ export default function TenantLogin() {
     });
     setLoading(false);
     if (signupError) {
-      setError(signupError.message);
+      setError(tr(signupError.message));
       return;
     }
     if (data.session) {
       router.push("/tenant/dashboard");
     } else {
-      setError("Account created. Check your email to confirm, then log in.");
+      setError(tr("Account created. Check your email to confirm, then log in."));
       setMode("login");
     }
   }
@@ -137,7 +139,7 @@ export default function TenantLogin() {
   async function handlePhoneSignup(value: string) {
     const phone = normalizePhone(value);
     if (!phone) {
-      setError("Enter a valid phone number (e.g. 07XXXXXXXX) or an email address.");
+      setError(tr("Enter a valid phone number (e.g. 07XXXXXXXX) or an email address."));
       return;
     }
     setLoading(true);
@@ -152,19 +154,19 @@ export default function TenantLogin() {
       signupRes = await res.json();
       if (!res.ok) {
         setLoading(false);
-        setError(signupRes.error || "Could not create your account. Please try again.");
+        setError(tr(signupRes.error || "Could not create your account. Please try again."));
         return;
       }
     } catch (e) {
       setLoading(false);
-      setError("Could not reach the server. Please try again.");
+      setError(tr("Could not reach the server. Please try again."));
       return;
     }
 
     const { error: loginError } = await supabase.auth.signInWithPassword({ phone, password });
     setLoading(false);
     if (loginError) {
-      setError("Account created. Please sign in with your new password.");
+      setError(tr("Account created. Please sign in with your new password."));
       setMode("login");
       return;
     }
@@ -184,7 +186,7 @@ export default function TenantLogin() {
     setError("");
     const value = forgotIdentifier.trim();
     if (!value) {
-      setError("Enter your email or phone number first.");
+      setError(tr("Enter your email or phone number first."));
       return;
     }
 
@@ -195,7 +197,7 @@ export default function TenantLogin() {
       });
       setLoading(false);
       if (resetError) {
-        setError(resetError.message);
+        setError(tr(resetError.message));
         return;
       }
       setForgotStep("emailSent");
@@ -204,7 +206,7 @@ export default function TenantLogin() {
 
     const phone = normalizePhone(value);
     if (!phone) {
-      setError("Enter a valid email address or phone number (e.g. 07XXXXXXXX).");
+      setError(tr("Enter a valid email address or phone number (e.g. 07XXXXXXXX)."));
       return;
     }
     setLoading(true);
@@ -217,24 +219,24 @@ export default function TenantLogin() {
       const data = await res.json();
       setLoading(false);
       if (!res.ok) {
-        setError(data.error || "Could not send a reset code. Please try again.");
+        setError(tr(data.error || "Could not send a reset code. Please try again."));
         return;
       }
       setForgotStep("code");
     } catch {
       setLoading(false);
-      setError("Could not reach the server. Please try again.");
+      setError(tr("Could not reach the server. Please try again."));
     }
   }
 
   async function handleForgotConfirm() {
     setError("");
     if (!resetCode.trim()) {
-      setError("Enter the code we sent you.");
+      setError(tr("Enter the code we sent you."));
       return;
     }
     if (newPassword.length < 6) {
-      setError("Password must be at least 6 characters.");
+      setError(tr("Password must be at least 6 characters."));
       return;
     }
     setLoading(true);
@@ -247,7 +249,7 @@ export default function TenantLogin() {
       const data = await res.json();
       if (!res.ok) {
         setLoading(false);
-        setError(data.error || "Could not reset your password. Please try again.");
+        setError(tr(data.error || "Could not reset your password. Please try again."));
         return;
       }
 
@@ -258,13 +260,13 @@ export default function TenantLogin() {
       setLoading(false);
       if (loginError) {
         setMode("login");
-        setError("Password updated. Please sign in with your new password.");
+        setError(tr("Password updated. Please sign in with your new password."));
         return;
       }
       router.push("/tenant/dashboard");
     } catch {
       setLoading(false);
-      setError("Could not reach the server. Please try again.");
+      setError(tr("Could not reach the server. Please try again."));
     }
   }
 
@@ -272,19 +274,23 @@ export default function TenantLogin() {
     <main className="min-h-screen bg-slate-50 px-6 py-12">
       <div className="mx-auto flex min-h-[80vh] max-w-md items-center justify-center">
         <div className="w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mb-4 flex justify-end gap-1 text-xs font-semibold">
+            <button type="button" onClick={() => setLang("en")} className={"rounded-full px-3 py-1 " + (lang === "en" ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600")}>English</button>
+            <button type="button" onClick={() => setLang("sw")} className={"rounded-full px-3 py-1 " + (lang === "sw" ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600")}>Kiswahili</button>
+          </div>
           <div className="mb-8 text-center">
             <h1 className="text-2xl font-bold text-slate-900">MANAGIKA HOMES</h1>
-            <p className="mt-2 text-sm text-slate-500">Tenant Portal</p>
+            <p className="mt-2 text-sm text-slate-500">{tr("Tenant Portal")}</p>
           </div>
 
           {mode === "forgot" ? (
             <>
               <div className="mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Reset Your Password</h2>
+                <h2 className="text-xl font-bold text-slate-900">{tr("Reset Your Password")}</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  {forgotStep === "request" && "Enter the email or phone number your landlord registered you with."}
-                  {forgotStep === "code" && "Enter the code we texted you and your new password."}
-                  {forgotStep === "emailSent" && "Check your email for a reset link."}
+                  {forgotStep === "request" && tr("Enter the email or phone number your landlord registered you with.")}
+                  {forgotStep === "code" && tr("Enter the code we texted you and your new password.")}
+                  {forgotStep === "emailSent" && tr("Check your email for a reset link.")}
                 </p>
               </div>
 
@@ -293,7 +299,7 @@ export default function TenantLogin() {
               {forgotStep === "request" && (
                 <div className="space-y-5">
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Email or Phone Number</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">{tr("Email or Phone Number")}</label>
                     <input
                       type="text"
                       value={forgotIdentifier}
@@ -308,7 +314,7 @@ export default function TenantLogin() {
                     onClick={handleForgotRequest}
                     className="w-full rounded-lg bg-slate-900 px-4 py-3 font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
                   >
-                    {loading ? "Sending..." : "Send Reset Code"}
+                    {loading ? tr("Sending...") : tr("Send Reset Code")}
                   </button>
                 </div>
               )}
@@ -316,23 +322,23 @@ export default function TenantLogin() {
               {forgotStep === "code" && (
                 <div className="space-y-5">
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Reset Code</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">{tr("Reset Code")}</label>
                     <input
                       type="text"
                       inputMode="numeric"
                       value={resetCode}
                       onChange={(e) => setResetCode(e.target.value)}
-                      placeholder="6-digit code"
+                      placeholder={tr("6-digit code")}
                       className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">New Password</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">{tr("New Password")}</label>
                     <input
                       type="password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="At least 6 characters"
+                      placeholder={tr("At least 6 characters")}
                       className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
                     />
                   </div>
@@ -342,7 +348,7 @@ export default function TenantLogin() {
                     onClick={handleForgotConfirm}
                     className="w-full rounded-lg bg-slate-900 px-4 py-3 font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
                   >
-                    {loading ? "Please wait..." : "Reset Password"}
+                    {loading ? tr("Please wait...") : tr("Reset Password")}
                   </button>
                   <button
                     type="button"
@@ -350,14 +356,16 @@ export default function TenantLogin() {
                     onClick={handleForgotRequest}
                     className="w-full text-center text-sm font-medium text-slate-500 hover:text-slate-900"
                   >
-                    Didn&rsquo;t get a code? Send again
+                    {tr("Didn’t get a code? Send again")}
                   </button>
                 </div>
               )}
 
               {forgotStep === "emailSent" && (
                 <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
-                  If an account exists for {forgotIdentifier.trim()}, a password reset link is on its way. Click the link in that email to set a new password.
+                  {lang === "sw"
+                    ? "Ikiwa akaunti ipo kwa " + forgotIdentifier.trim() + ", kiungo cha kuweka upya nenosiri kinakuja. Bonyeza kiungo hicho kwenye barua pepe ili uweke nenosiri jipya."
+                    : "If an account exists for " + forgotIdentifier.trim() + ", a password reset link is on its way. Click the link in that email to set a new password."}
                 </div>
               )}
 
@@ -366,15 +374,15 @@ export default function TenantLogin() {
                 onClick={() => { setMode("login"); setError(""); }}
                 className="mt-6 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Back to Sign In
+                {tr("Back to Sign In")}
               </button>
             </>
           ) : (
             <>
               <div className="mb-6">
-                <h2 className="text-xl font-bold text-slate-900">{mode === "login" ? "Tenant Login" : "Tenant Sign Up"}</h2>
+                <h2 className="text-xl font-bold text-slate-900">{mode === "login" ? tr("Tenant Login") : tr("Tenant Sign Up")}</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  {mode === "login" ? "Sign in with your email or phone number to view your home, rent and payments." : "Use the email or phone number your landlord registered you with."}
+                  {mode === "login" ? tr("Sign in with your email or phone number to view your home, rent and payments.") : tr("Use the email or phone number your landlord registered you with.")}
                 </p>
               </div>
 
@@ -384,7 +392,7 @@ export default function TenantLogin() {
 
               <div className="space-y-5">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">Email or Phone Number</label>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">{tr("Email or Phone Number")}</label>
                   <input
                     type="text"
                     value={identifier}
@@ -395,14 +403,14 @@ export default function TenantLogin() {
                 </div>
                 <div>
                   <div className="mb-2 flex items-center justify-between">
-                    <label className="block text-sm font-semibold text-slate-700">Password</label>
+                    <label className="block text-sm font-semibold text-slate-700">{tr("Password")}</label>
                     {mode === "login" && (
                       <button type="button" onClick={openForgotPassword} className="text-sm font-medium text-slate-500 hover:text-slate-900">
-                        Forgot password?
+                        {tr("Forgot password?")}
                       </button>
                     )}
                   </div>
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={tr("Enter your password")} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
                 </div>
 
                 <button
@@ -411,13 +419,13 @@ export default function TenantLogin() {
                   onClick={mode === "login" ? handleLogin : handleSignup}
                   className="w-full rounded-lg bg-slate-900 px-4 py-3 font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
                 >
-                  {loading ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
+                  {loading ? tr("Please wait...") : mode === "login" ? tr("Sign In") : tr("Create Account")}
                 </button>
               </div>
 
               <div className="my-6 flex items-center gap-3">
                 <div className="h-px flex-1 bg-slate-200" />
-                <span className="text-xs text-slate-400">OR</span>
+                <span className="text-xs text-slate-400">{tr("OR")}</span>
                 <div className="h-px flex-1 bg-slate-200" />
               </div>
 
@@ -426,18 +434,18 @@ export default function TenantLogin() {
                 onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }}
                 className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 hover:bg-slate-50"
               >
-                {mode === "login" ? "First time? Set up your account" : "Already have an account? Sign In"}
+                {mode === "login" ? tr("First time? Set up your account") : tr("Already have an account? Sign In")}
               </button>
 
               <p className="mt-6 text-center text-sm text-slate-500">
-                Are you a landlord?{" "}
-                <a href="/landlord/login" className="font-semibold text-slate-900 hover:underline">Landlord Login</a>
+                {tr("Are you a landlord?")}{" "}
+                <a href="/landlord/login" className="font-semibold text-slate-900 hover:underline">{tr("Landlord Login")}</a>
               </p>
             </>
           )}
 
           <div className="mt-6 text-center">
-            <a href="/" className="text-sm font-medium text-slate-500 hover:text-slate-900">← Back to Managika Homes</a>
+            <a href="/" className="text-sm font-medium text-slate-500 hover:text-slate-900">{tr("← Back to Managika Homes")}</a>
           </div>
         </div>
       </div>

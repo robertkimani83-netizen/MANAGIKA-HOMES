@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { samePhone, toLocalPhone } from "@/lib/tenant-phone";
+import { downloadCsv, todayForFileName } from "@/lib/csv";
 
 type Unit = { id: string; unit_number: string; base_rent: number; status: string; property_id: string; properties: { property_name: string } | null };
 
@@ -74,6 +76,12 @@ const [editEmail, setEditEmail] = useState("");
 const [editSaving, setEditSaving] = useState(false);
 const [editError, setEditError] = useState<string | null>(null);
 
+// Lets the dashboard's "Add Tenant" button land here with the form already
+// open (/tenants?add=1).
+useEffect(() => {
+if (new URLSearchParams(window.location.search).get("add") === "1") setShowForm(true);
+}, []);
+
 useEffect(() => {
 async function init() {
 const { data: { user } } = await supabase.auth.getUser();
@@ -122,19 +130,30 @@ loadVacantUnits(landlordId);
 loadTenants(landlordId);
 }, [landlordId]);
 
+// Finds another of this landlord's tenants who already has this phone number
+// (in any format: 0712..., +254712..., 0712 345 678). Two tenants sharing a
+// number confuse tenant login, because the number can only lead to one of them.
+function findPhoneOwner(phoneText: string, exceptTenantId?: string) {
+  return tenants.find((t) => t.id !== exceptTenantId && !!t.phone_number && samePhone(t.phone_number, phoneText)) || null;
+}
+
 async function addTenant() {
 if (!landlordId) return;
 if (!fullName.trim()) { alert("Please enter the tenant's name."); return; }
 if (!phone.trim()) { alert("Please enter the tenant's phone number."); return; }
+const cleanPhone = toLocalPhone(phone);
+if (!cleanPhone) { alert("That phone number doesn't look right. Please use a Kenyan number like 0712345678 or 0110123456."); return; }
+const phoneOwner = findPhoneOwner(cleanPhone);
+if (phoneOwner && !window.confirm(phoneOwner.full_name + " already has the number " + cleanPhone + ". Two tenants with the same number can't both log in with it. Save anyway?")) return;
 if (unitId) {
 const selectedUnit = vacantUnits.find((unit) => unit.id === unitId);
 if (!selectedUnit) { alert("Invalid unit selected."); return; }
 }
-const { error: tenantError } = await supabase.from("tenants").insert({ landlord_id: landlordId, full_name: fullName.trim(), phone_number: phone.trim(), email: email.trim() || null, unit_id: unitId || null, status: "active", joined_at: new Date().toISOString() });
+const { error: tenantError } = await supabase.from("tenants").insert({ landlord_id: landlordId, full_name: fullName.trim(), phone_number: cleanPhone, email: email.trim() || null, unit_id: unitId || null, status: "active", joined_at: new Date().toISOString() });
 if (tenantError) { alert("Error saving tenant: " + tenantError.message); return; }
 if (unitId) {
 const { error: unitError } = await supabase.from("units").update({ status: "occupied" }).eq("id", unitId);
-if (unitError) console.error("Unit status error:", unitError);
+if (unitError) { console.error("Unit status error:", unitError); alert("Tenant saved, but the unit's status could not be set to occupied: " + unitError.message + ". Please check the Units page."); }
 // The unit may have had a public "For Rent" listing - now that it has a
 // tenant, take it off the public listing page so nobody inquires about a
 // unit that's no longer available. Silently does nothing if no listing
@@ -151,11 +170,23 @@ if (!landlordId) return;
 const lines = bulkText.split("\n");
 const parsed: { name: string; phone: string }[] = [];
 const skipped: string[] = [];
+const duplicateLines: string[] = [];
+const seenPhones = new Set<string>();
+for (const t of tenants) {
+  const existing = t.phone_number ? toLocalPhone(t.phone_number) : null;
+  if (existing) seenPhones.add(existing);
+}
 for (const line of lines) {
 if (!line.trim()) continue;
 const result = parseBulkLine(line);
-if (result) parsed.push(result);
-else skipped.push(line.trim());
+const cleanPhone = result ? toLocalPhone(result.phone) : null;
+if (!result || !cleanPhone) { skipped.push(line.trim()); continue; }
+if (seenPhones.has(cleanPhone)) { duplicateLines.push(line.trim()); continue; }
+seenPhones.add(cleanPhone);
+parsed.push({ name: result.name, phone: cleanPhone });
+}
+if (duplicateLines.length > 0) {
+  alert(duplicateLines.length + " line" + (duplicateLines.length === 1 ? " was" : "s were") + " left out because that phone number is already on your tenant list (or is repeated in your list):\n\n" + duplicateLines.slice(0, 10).join("\n") + (duplicateLines.length > 10 ? "\n..." : ""));
 }
 if (parsed.length === 0) {
 setBulkResult({ added: 0, skipped });
@@ -241,7 +272,7 @@ const { error } = await supabase.from("tenants").delete().eq("id", tenant.id).eq
 if (error) { alert("Error removing tenant: " + error.message); return; }
 if (tenant.unit_id) {
 const { error: unitError } = await supabase.from("units").update({ status: "vacant" }).eq("id", tenant.unit_id);
-if (unitError) console.error("Unit status error:", unitError);
+if (unitError) { console.error("Unit status error:", unitError); alert("Tenant removed, but the unit could not be set back to vacant: " + unitError.message + ". Please check the Units page."); }
 }
 await loadVacantUnits(landlordId);
 await loadTenants(landlordId);
@@ -264,13 +295,23 @@ setEditError(null);
 async function saveEdit() {
 if (!landlordId || !editingTenant) return;
 if (!editName.trim()) { setEditError("Please enter the tenant's name."); return; }
+let cleanEditPhone: string | null = null;
+if (editPhone.trim() && editPhone.trim() === (editingTenant.phone_number || "").trim()) {
+  // Phone untouched - keep whatever is saved so a name/email fix is never blocked.
+  cleanEditPhone = editPhone.trim();
+} else if (editPhone.trim()) {
+  cleanEditPhone = toLocalPhone(editPhone);
+  if (!cleanEditPhone) { setEditError("That phone number doesn't look right. Please use a Kenyan number like 0712345678 or 0110123456."); return; }
+  const phoneOwner = findPhoneOwner(cleanEditPhone, editingTenant.id);
+  if (phoneOwner && !window.confirm(phoneOwner.full_name + " already has the number " + cleanEditPhone + ". Two tenants with the same number can't both log in with it. Save anyway?")) return;
+}
 setEditSaving(true);
 setEditError(null);
 const { error } = await supabase
 .from("tenants")
 .update({
 full_name: editName.trim(),
-phone_number: editPhone.trim() || null,
+phone_number: cleanEditPhone,
 email: editEmail.trim() || null,
 })
 .eq("id", editingTenant.id)
@@ -284,6 +325,14 @@ await loadTenants(landlordId);
 const totalTenants = tenants.length;
 const activeTenants = tenants.filter((tenant) => tenant.status === "active").length;
 const totalRent = tenants.reduce((sum, tenant) => sum + (Number(tenant.units?.base_rent) || 0), 0);
+
+function exportTenantsCsv() {
+  downloadCsv(
+    "managika-tenants-" + todayForFileName() + ".csv",
+    ["Tenant", "Phone", "Email", "Property", "Unit", "Rent (KSh)", "Status"],
+    tenants.map((tenant) => [tenant.full_name, tenant.phone_number || "", tenant.email || "", tenant.units?.properties?.property_name || "", tenant.units?.unit_number || "Unassigned", tenant.units ? Number(tenant.units.base_rent) || 0 : "", tenant.status])
+  );
+}
 
 return (
 <main className="min-h-screen city-skyline-page">
@@ -308,6 +357,7 @@ return (
         </div>
       </div>
       <div className="flex gap-3">
+        <button onClick={exportTenantsCsv} disabled={loading || tenants.length === 0} className="px-5 py-3 rounded-lg border-2 border-slate-300 bg-white text-slate-700 font-medium hover:bg-slate-50 transition disabled:opacity-40">⬇ CSV</button>
         <button onClick={() => setShowBulkForm(true)} className="px-5 py-3 rounded-lg border-2 border-slate-900 bg-white text-slate-900 font-medium hover:-translate-y-0.5 hover:bg-slate-50 transition">📋 Paste a List</button>
         <button onClick={() => setShowForm(true)} className="px-5 py-3 rounded-lg bg-slate-900 text-white font-medium shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 hover:bg-slate-800 transition">+ Add Tenant</button>
       </div>
@@ -471,6 +521,7 @@ return (
                   <td className="px-6 py-4">{tenant.units?.unit_number || "Unassigned"}</td>
                   <td className="px-6 py-4">{tenant.units ? "KSh " + Number(tenant.units.base_rent).toLocaleString() : "—"}</td>
                   <td className="px-6 py-4 space-x-3 whitespace-nowrap">
+                    <a href={"/tenants/" + tenant.id + "/statement"} className="text-sm font-medium text-slate-700 hover:underline">Statement</a>
                     <button onClick={() => openEdit(tenant)} className="text-sm font-medium text-slate-700 hover:underline">Edit</button>
                     <button onClick={() => deleteTenant(tenant)} className="text-sm font-medium text-red-600 hover:underline">Remove</button>
                   </td>

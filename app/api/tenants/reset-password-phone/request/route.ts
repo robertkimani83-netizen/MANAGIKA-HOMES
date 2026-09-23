@@ -3,6 +3,7 @@ import AfricasTalking from "africastalking";
 import { randomInt } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { normalizePhone, phoneVariants } from "@/lib/tenant-phone";
+import { allowRequest, clientIp } from "@/lib/rate-limit";
 
 // Step 1 of phone-based password reset for tenants who signed up with a
 // phone number instead of an email. Supabase Auth's own phone-recovery
@@ -17,6 +18,13 @@ export async function POST(request: Request) {
     const phone = normalizePhone(body.phone || "");
     if (!phone) {
       return NextResponse.json({ error: "Enter a valid phone number, e.g. 07XXXXXXXX." }, { status: 400 });
+    }
+
+    // Every code sent costs an SMS, so cap how many one person can trigger
+    // (across all numbers). Based on the caller, not the number, so it leaks
+    // nothing about who is registered.
+    if (!(await allowRequest("reset-code:ip:" + clientIp(request), 10, 60 * 60))) {
+      return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
     }
 
     // Always the same response whether or not this number belongs to a

@@ -171,11 +171,16 @@ function LandlordBillingInner() {
       const userId = sessionData.session?.user.id;
       if (!userId) return;
 
+      // Someone who is already active (renewing or changing plan) looks "active"
+      // from the very first check, so only count it as paid once the plan's
+      // end date has actually moved.
+      const startedActive = subscription?.status === "active";
+      const startEnd = subscription?.current_period_end || null;
       let attempts = 0;
       const poll = setInterval(async () => {
         attempts += 1;
         const sub = await refreshSubscription(userId);
-        if (sub?.status === "active") {
+        if (sub?.status === "active" && (!startedActive || sub.current_period_end !== startEnd)) {
           clearInterval(poll);
           setStatus("Payment received — you're all set. Taking you onward...");
           setPaying(false);

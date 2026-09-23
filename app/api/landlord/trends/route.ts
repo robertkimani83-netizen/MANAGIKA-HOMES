@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { nairobiPeriod } from "@/lib/period";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -14,10 +15,15 @@ const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "Ju
 // (billing_period is stored as this string, not a date column).
 function lastNPeriods(n: number) {
   const periods: { key: string; label: string }[] = [];
-  const now = new Date();
+  // "This month" must be the Kenya-time month - the server runs in UTC,
+  // three hours behind, so plain new Date() shows last month for the first
+  // three hours of each month (see lib/period.ts).
+  const [thisMonthName, thisYearText] = nairobiPeriod().split(" ");
+  const thisMonth = MONTH_NAMES.indexOf(thisMonthName);
+  const thisYear = Number(thisYearText);
   for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    periods.push({ key: MONTH_NAMES[d.getMonth()] + " " + d.getFullYear(), label: MONTH_NAMES[d.getMonth()].slice(0, 3) });
+    const d = new Date(Date.UTC(thisYear, thisMonth - i, 1));
+    periods.push({ key: MONTH_NAMES[d.getUTCMonth()] + " " + d.getUTCFullYear(), label: MONTH_NAMES[d.getUTCMonth()].slice(0, 3) });
   }
   return periods;
 }
