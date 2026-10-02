@@ -26,7 +26,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { invoiceStatusFor } from "@/lib/invoice-math";
-import { periodToIndex, periodStartDate } from "@/lib/period";
+import { periodToIndex, periodStartDate, shiftPeriod } from "@/lib/period";
 
 export type OpenInvoice = { id: string; billing_period: string; total_due: number; paid: number };
 export type Allocation = { invoiceId: string; period: string; amount: number };
@@ -58,6 +58,22 @@ export function allocateToEarlierMonths(
     remaining -= piece;
   }
   return { allocations, remainder: remaining };
+}
+
+// Should "auto" create LAST month's invoice before allocating? Yes when the
+// tenant has no invoice at all for last month (most tenants were added to
+// the app mid-September 2026, so they never got a September invoice) AND
+// they were already living there before this month started. Without this, a
+// tenant paying September rent in October would have it filed as October,
+// because there was no September invoice for it to go to.
+// movedIn: lease start date if set, else the date they were added ("YYYY-MM-DD").
+export function shouldCreateLastMonthInvoice(hasLastMonthInvoice: boolean, movedIn: string | null, currentPeriod: string, rent: number): boolean {
+  if (hasLastMonthInvoice) return false;
+  if (!(Number(rent) > 0)) return false;
+  const thisMonthStart = periodStartDate(currentPeriod);
+  if (!thisMonthStart) return false;
+  if (movedIn && movedIn.slice(0, 10) >= thisMonthStart) return false;
+  return true;
 }
 
 // Reference for the n-th piece (0-based) of a split payment.
@@ -116,6 +132,9 @@ export type RecordRentPaymentInput = {
   applyTo: "auto" | string;
   // Due date to use if the CURRENT month's invoice has to be created now.
   currentDueDate: string;
+  // When the tenant moved in: lease start date if set, else the date they
+  // were added to the app. Used only by "auto" (see shouldCreateLastMonthInvoice).
+  movedIn?: string | null;
 };
 
 export type RecordRentPaymentResult =
@@ -131,6 +150,30 @@ export async function recordRentPayment(db: SupabaseClient, input: RecordRentPay
   let targetPeriod = input.currentPeriod;
 
   if (input.applyTo === "auto") {
+    const lastPeriod = shiftPeriod(input.currentPeriod, -1);
+    const { data: lastInvoice, error: lastError } = await db
+      .from("invoices")
+      .select("id")
+      .eq("tenant_id", input.tenantId)
+      .eq("billing_period", lastPeriod)
+      .maybeSingle();
+    if (lastError) return { ok: false, error: "Could not check last month's invoice: " + lastError.message };
+    if (shouldCreateLastMonthInvoice(!!lastInvoice, input.movedIn ?? null, input.currentPeriod, input.rent)) {
+      const rent = Number(input.rent);
+      // If this fails (e.g. created at the same moment by another request)
+      // the open-invoice lookup below simply picks up whichever exists.
+      await db.from("invoices").insert({
+        invoice_number: "INV-" + Date.now() + "-" + input.tenantId.slice(0, 6) + "-L",
+        tenant_id: input.tenantId,
+        unit_id: input.unitId,
+        billing_period: lastPeriod,
+        rent_amount: rent,
+        total_due: rent,
+        status: "unpaid",
+        due_date: periodStartDate(lastPeriod),
+      });
+    }
+
     const { invoices, error } = await loadOpenInvoices(db, input.tenantId);
     if (error) return { ok: false, error: "Could not check earlier unpaid months: " + error };
     const result = allocateToEarlierMonths(amount, invoices, input.currentPeriod);
@@ -205,4 +248,106 @@ export async function recordRentPayment(db: SupabaseClient, input: RecordRentPay
 // "September 2026" or "September 2026 & October 2026" for confirmation messages.
 export function allocationPeriodsText(allocations: Allocation[]): string {
   return Array.from(new Set(allocations.map((a) => a.period))).join(" & ");
+}
+
+// ---- Editing (the Edit buttons on the Payments page) --------------------
+
+// Re-total one invoice's payments and save its status (paid / partially
+// paid / unpaid). Used after any payment is moved, changed or added.
+export async function refreshInvoiceStatus(db: SupabaseClient, invoiceId: string): Promise<string | null> {
+  const [{ data: inv }, { data: pays }] = await Promise.all([
+    db.from("invoices").select("total_due").eq("id", invoiceId).maybeSingle(),
+    db.from("payments").select("amount_paid").eq("invoice_id", invoiceId),
+  ]);
+  const totalPaid = ((pays || []) as { amount_paid: number }[]).reduce((s, p) => s + (Number(p.amount_paid) || 0), 0);
+  const status = invoiceStatusFor(Number((inv as any)?.total_due) || 0, totalPaid);
+  const { error } = await db.from("invoices").update({ status }).eq("id", invoiceId);
+  return error ? error.message : null;
+}
+
+// The invoice for one tenant + month, created with the unit rent if missing.
+async function invoiceFor(db: SupabaseClient, tenantId: string, unitId: string | null, period: string, rent: number, dueDate: string): Promise<{ id: string } | null> {
+  const find = async () => {
+    const { data } = await db.from("invoices").select("id").eq("tenant_id", tenantId).eq("billing_period", period).maybeSingle();
+    return (data as { id: string } | null) || null;
+  };
+  const existing = await find();
+  if (existing) return existing;
+  const total = Number(rent) || 0;
+  const { data } = await db
+    .from("invoices")
+    .insert({
+      invoice_number: "INV-" + Date.now() + "-" + tenantId.slice(0, 6),
+      tenant_id: tenantId,
+      unit_id: unitId,
+      billing_period: period,
+      rent_amount: total,
+      total_due: total,
+      status: "unpaid",
+      due_date: dueDate,
+    })
+    .select("id")
+    .single();
+  return (data as { id: string } | null) || (await find());
+}
+
+export type EditPaymentInput = {
+  paymentId: string;
+  currentInvoiceId: string;
+  tenantId: string;
+  unitId: string | null;
+  rent: number;
+  amount: number;
+  method: string;
+  reference: string | null;
+  // The month this payment should count for, e.g. "September 2026".
+  period: string;
+};
+
+// Change a recorded payment: amount, method, reference, and/or which month
+// it counts for. Moving it to another month re-points it at that month's
+// invoice (created if needed) and re-checks BOTH invoices' status, so the
+// old month goes back to unpaid/partial and the new one becomes paid.
+export async function editPayment(db: SupabaseClient, input: EditPaymentInput): Promise<{ ok: true; warnings: string[] } | { ok: false; error: string }> {
+  const amount = Number(input.amount) || 0;
+  if (amount <= 0) return { ok: false, error: "Amount must be more than zero" };
+  if (periodToIndex(input.period) === null) return { ok: false, error: "Invalid month: " + input.period };
+
+  const target = await invoiceFor(db, input.tenantId, input.unitId, input.period, input.rent, periodStartDate(input.period));
+  if (!target) return { ok: false, error: "Could not find or create the invoice for " + input.period };
+
+  const { error } = await db
+    .from("payments")
+    .update({ amount_paid: amount, payment_method: input.method, transaction_reference: input.reference || null, invoice_id: target.id })
+    .eq("id", input.paymentId);
+  if (error) return { ok: false, error: (error as any).code === "23505" ? "Another payment already uses that reference." : error.message };
+
+  const warnings: string[] = [];
+  for (const id of Array.from(new Set([input.currentInvoiceId, target.id]))) {
+    const e = await refreshInvoiceStatus(db, id);
+    if (e) warnings.push(e);
+  }
+  return { ok: true, warnings };
+}
+
+// Change the TOTAL due for one tenant for one month (e.g. a discount, or a
+// different rent that month). The number given is the full amount due -
+// the same "Expected" figure the Rent Status table shows, which already
+// includes any water charge - so water is never counted twice: rent becomes
+// total minus the water already on the bill. Creates the invoice if missing.
+export async function setRentDue(
+  db: SupabaseClient,
+  input: { tenantId: string; unitId: string | null; period: string; rent: number; dueDate: string }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const rent = Number(input.rent);
+  if (!Number.isFinite(rent) || rent < 0) return { ok: false, error: "Please enter a valid rent amount" };
+  const invoice = await invoiceFor(db, input.tenantId, input.unitId, input.period, rent, input.dueDate);
+  if (!invoice) return { ok: false, error: "Could not find or create the invoice for " + input.period };
+  const { data: current } = await db.from("invoices").select("water_amount").eq("id", invoice.id).maybeSingle();
+  const water = Number((current as any)?.water_amount) || 0;
+  if (rent < water) return { ok: false, error: "The amount due can't be less than the water charge already on this bill (KSh " + water.toLocaleString() + ")" };
+  const { error } = await db.from("invoices").update({ rent_amount: rent - water, total_due: rent }).eq("id", invoice.id);
+  if (error) return { ok: false, error: error.message };
+  const statusError = await refreshInvoiceStatus(db, invoice.id);
+  return statusError ? { ok: false, error: "Saved, but status not updated: " + statusError } : { ok: true };
 }

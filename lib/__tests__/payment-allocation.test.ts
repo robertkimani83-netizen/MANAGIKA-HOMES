@@ -60,3 +60,20 @@ describe("period helpers", () => {
     expect(periodToIndex("nonsense")).toBeNull();
   });
 });
+
+import { shouldCreateLastMonthInvoice } from "@/lib/payment-allocation";
+
+describe("shouldCreateLastMonthInvoice", () => {
+  it("creates September for a tenant added mid-September who has no September invoice", () => {
+    expect(shouldCreateLastMonthInvoice(false, "2026-09-20", "October 2026", 4000)).toBe(true);
+  });
+  it("does not when the September invoice already exists", () => {
+    expect(shouldCreateLastMonthInvoice(true, "2026-09-20", "October 2026", 4000)).toBe(false);
+  });
+  it("does not for a tenant who moved in this month", () => {
+    expect(shouldCreateLastMonthInvoice(false, "2026-10-02", "October 2026", 4000)).toBe(false);
+  });
+  it("does not when the unit has no rent set", () => {
+    expect(shouldCreateLastMonthInvoice(false, "2026-09-20", "October 2026", 0)).toBe(false);
+  });
+});
