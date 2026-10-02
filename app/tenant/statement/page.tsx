@@ -25,7 +25,7 @@ export default function TenantStatementPage() {
         return;
       }
       // Row-level security already limits this to the signed-in tenant's own row.
-      const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, units(unit_number, properties(property_name))").maybeSingle();
+      const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, units(unit_number, properties(property_name))").order("joined_at", { ascending: true }).limit(1).maybeSingle();
       if (!tenantRow) {
         router.push("/tenant/login");
         return;

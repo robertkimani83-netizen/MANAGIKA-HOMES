@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   tenantQuery = authedUser.email
     ? tenantQuery.eq("email", authedUser.email)
     : tenantQuery.in("phone_number", phoneVariants(authedUser.phone as string));
-  const { data: tenant, error: tenantError } = await tenantQuery.maybeSingle();
+  const { data: tenant, error: tenantError } = await tenantQuery.order("joined_at", { ascending: true }).limit(1).maybeSingle();
   if (tenantError || !tenant || !tenant.landlord_id) return NextResponse.json({ error: "Tenant record not found" }, { status: 404 });
 
   const period = currentPeriod();

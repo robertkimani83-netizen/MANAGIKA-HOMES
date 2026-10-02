@@ -38,6 +38,7 @@ export async function POST(request: Request) {
       .from("tenants")
       .select("id")
       .in("phone_number", phoneVariants(phone))
+      .order("joined_at", { ascending: true }).limit(1)
       .maybeSingle();
 
     if (!tenant) {

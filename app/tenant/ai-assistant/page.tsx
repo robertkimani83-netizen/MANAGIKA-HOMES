@@ -27,7 +27,7 @@ async function init() {
   // scopes this to exactly the caller's own row, whichever of email or
   // phone their account was authenticated with. That lets phone-only
   // tenants (no email on file) reach this page too.
-  const { data: tenantRowData } = await supabase.from("tenants").select("id, full_name, unit_id, units(unit_number, base_rent, properties(property_name))").maybeSingle();
+  const { data: tenantRowData } = await supabase.from("tenants").select("id, full_name, unit_id, units(unit_number, base_rent, properties(property_name))").order("joined_at", { ascending: true }).limit(1).maybeSingle();
   if (!tenantRowData) { router.push("/tenant/login"); return; }
   const tenantRow: any = tenantRowData;
 

@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
     if (!user.email && !user.phone) return NextResponse.json({ documents: [] });
     let tenantLookup = supabaseAdmin.from("tenants").select("id");
     tenantLookup = user.email ? tenantLookup.eq("email", user.email) : tenantLookup.in("phone_number", phoneVariants(user.phone as string));
-    const { data: tenantRow } = await tenantLookup.maybeSingle();
+    const { data: tenantRow } = await tenantLookup.order("joined_at", { ascending: true }).limit(1).maybeSingle();
     if (!tenantRow) return NextResponse.json({ documents: [] });
 
     const { data, error } = await supabaseAdmin
