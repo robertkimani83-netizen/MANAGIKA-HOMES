@@ -149,7 +149,7 @@ export async function POST(request: Request) {
 
     let tenantQuery = supabaseAdmin
       .from("tenants")
-      .select("id, unit_id, full_name, phone_number, status")
+      .select("id, unit_id, full_name, phone_number, status, joined_at, lease_start_date")
       .eq("unit_id", unit.id);
     if (LANDLORD_ID) tenantQuery = tenantQuery.eq("landlord_id", LANDLORD_ID);
     const { data: tenantRows, error: tenantError } = await tenantQuery;
@@ -192,6 +192,7 @@ export async function POST(request: Request) {
       currentPeriod: period,
       applyTo: "auto",
       currentDueDate: nairobiDate(),
+      movedIn: String(tenant.lease_start_date || tenant.joined_at || "").slice(0, 10) || null,
     });
     if (!recorded.ok) {
       // 23505 = unique violation on transaction_reference: a concurrent

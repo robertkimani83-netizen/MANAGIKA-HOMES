@@ -12,6 +12,8 @@ id: string;
 full_name: string;
 unit_id: string | null;
 phone_number: string | null;
+joined_at?: string | null;
+lease_start_date?: string | null;
 units: { id: string; unit_number: string; base_rent: number; properties: { property_name: string } | null } | null;
 };
 
@@ -180,7 +182,7 @@ async function loadTenants(id: string) {
 // "units" row, so we fetch normally (including unit_sort_key) and sort
 // client-side - this puts the Rent Status table in natural unit order
 // (A1, A2, ... SHOP B1, ... B1, ...) instead of alphabetical by tenant name.
-const { data, error } = await supabase.from("tenants").select("id, full_name, unit_id, phone_number, units(id, unit_number, base_rent, unit_sort_key, properties(property_name))").eq("landlord_id", id).eq("status", "active");
+const { data, error } = await supabase.from("tenants").select("id, full_name, unit_id, phone_number, joined_at, lease_start_date, units(id, unit_number, base_rent, unit_sort_key, properties(property_name))").eq("landlord_id", id).eq("status", "active");
 if (error) setLoadError("Some of your data could not be loaded (" + error.message + "). Please refresh the page before trusting the amounts below.");
 if (!error && data) {
   const sorted = (data as unknown as (Tenant & { units: (Tenant["units"] & { unit_sort_key?: string }) | null })[]).slice().sort((a, b) => {
@@ -327,6 +329,7 @@ const result = await recordRentPayment(supabase, {
   reference: reference.trim() || null,
   currentPeriod: period,
   applyTo,
+  movedIn: String(tenant.lease_start_date || tenant.joined_at || "").slice(0, 10) || null,
   currentDueDate: today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0"),
 });
 if (!result.ok) {
@@ -613,7 +616,7 @@ return (
               This tenant still owes {earlier.map((x) => x.period + " (KSh " + x.owed.toLocaleString() + ")").join(", ")}. The payment will clear {earlier.length === 1 ? "that" : "those, oldest first,"} before anything goes to {period}.
             </p>
           ) : (
-            <p className="mt-4 text-sm text-slate-500">No earlier unpaid months — this payment goes to {period}.</p>
+            <p className="mt-4 text-sm text-slate-500">No earlier unpaid months on record — this payment goes to {period}, unless this tenant has no {shiftPeriod(period, -1)} invoice yet, in which case it goes to {shiftPeriod(period, -1)} first.</p>
           );
         })()}
         <div className="mt-6 flex gap-3">

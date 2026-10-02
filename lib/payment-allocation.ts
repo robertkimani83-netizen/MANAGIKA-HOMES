@@ -26,7 +26,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { invoiceStatusFor } from "@/lib/invoice-math";
-import { periodToIndex, periodStartDate } from "@/lib/period";
+import { periodToIndex, periodStartDate, shiftPeriod } from "@/lib/period";
 
 export type OpenInvoice = { id: string; billing_period: string; total_due: number; paid: number };
 export type Allocation = { invoiceId: string; period: string; amount: number };
@@ -58,6 +58,22 @@ export function allocateToEarlierMonths(
     remaining -= piece;
   }
   return { allocations, remainder: remaining };
+}
+
+// Should "auto" create LAST month's invoice before allocating? Yes when the
+// tenant has no invoice at all for last month (most tenants were added to
+// the app mid-September 2026, so they never got a September invoice) AND
+// they were already living there before this month started. Without this, a
+// tenant paying September rent in October would have it filed as October,
+// because there was no September invoice for it to go to.
+// movedIn: lease start date if set, else the date they were added ("YYYY-MM-DD").
+export function shouldCreateLastMonthInvoice(hasLastMonthInvoice: boolean, movedIn: string | null, currentPeriod: string, rent: number): boolean {
+  if (hasLastMonthInvoice) return false;
+  if (!(Number(rent) > 0)) return false;
+  const thisMonthStart = periodStartDate(currentPeriod);
+  if (!thisMonthStart) return false;
+  if (movedIn && movedIn.slice(0, 10) >= thisMonthStart) return false;
+  return true;
 }
 
 // Reference for the n-th piece (0-based) of a split payment.
@@ -116,6 +132,9 @@ export type RecordRentPaymentInput = {
   applyTo: "auto" | string;
   // Due date to use if the CURRENT month's invoice has to be created now.
   currentDueDate: string;
+  // When the tenant moved in: lease start date if set, else the date they
+  // were added to the app. Used only by "auto" (see shouldCreateLastMonthInvoice).
+  movedIn?: string | null;
 };
 
 export type RecordRentPaymentResult =
@@ -131,6 +150,30 @@ export async function recordRentPayment(db: SupabaseClient, input: RecordRentPay
   let targetPeriod = input.currentPeriod;
 
   if (input.applyTo === "auto") {
+    const lastPeriod = shiftPeriod(input.currentPeriod, -1);
+    const { data: lastInvoice, error: lastError } = await db
+      .from("invoices")
+      .select("id")
+      .eq("tenant_id", input.tenantId)
+      .eq("billing_period", lastPeriod)
+      .maybeSingle();
+    if (lastError) return { ok: false, error: "Could not check last month's invoice: " + lastError.message };
+    if (shouldCreateLastMonthInvoice(!!lastInvoice, input.movedIn ?? null, input.currentPeriod, input.rent)) {
+      const rent = Number(input.rent);
+      // If this fails (e.g. created at the same moment by another request)
+      // the open-invoice lookup below simply picks up whichever exists.
+      await db.from("invoices").insert({
+        invoice_number: "INV-" + Date.now() + "-" + input.tenantId.slice(0, 6) + "-L",
+        tenant_id: input.tenantId,
+        unit_id: input.unitId,
+        billing_period: lastPeriod,
+        rent_amount: rent,
+        total_due: rent,
+        status: "unpaid",
+        due_date: periodStartDate(lastPeriod),
+      });
+    }
+
     const { invoices, error } = await loadOpenInvoices(db, input.tenantId);
     if (error) return { ok: false, error: "Could not check earlier unpaid months: " + error };
     const result = allocateToEarlierMonths(amount, invoices, input.currentPeriod);
