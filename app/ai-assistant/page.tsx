@@ -3,11 +3,21 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { shiftPeriod } from "@/lib/period";
+import { loadPeriodStatus } from "@/lib/period-status";
 
 function currentPeriod() {
 const d = new Date();
 const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 return names[d.getMonth()] + " " + d.getFullYear();
+}
+
+// "September 2026" -> "2026-09", to compare with the first 7 characters of a
+// payment's paid_at timestamp.
+function lastPeriodMonthKey(period: string) {
+const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const [m, y] = period.split(" ");
+return y + "-" + String(names.indexOf(m) + 1).padStart(2, "0");
 }
 
 type Message = { role: "user" | "assistant"; text: string };
@@ -123,7 +133,14 @@ if (tenantIds.length > 0) {
 
     const totalBalance = currentBalance + priorBalance;
     if (totalBalance > 0) {
-      const note = priorBalance > 0 ? " (includes KSh " + priorBalance.toLocaleString() + " owed from an earlier month)" : " for " + period;
+      // Name each earlier month and its amount, so "who hasn't paid
+      // September" can be answered from this line too.
+      const priorParts = priorInvoices
+        .map((inv) => ({ p: inv.billing_period, owed: Math.max((Number(inv.total_due) || 0) - (paidByInvoice[inv.id] || 0), 0) }))
+        .filter((x) => x.owed > 0)
+        .map((x) => "KSh " + x.owed.toLocaleString() + " for " + x.p);
+      if (currentBalance > 0) priorParts.push("KSh " + currentBalance.toLocaleString() + " for " + period);
+      const note = priorBalance > 0 ? " in total (" + priorParts.join(", ") + ")" : " for " + period;
       unpaidLines.push(tenant.full_name + " owes KSh " + totalBalance.toLocaleString() + note);
     } else {
       const lastPaidAt = currentLastPaidAtByTenant[tenant.id];
@@ -143,6 +160,19 @@ if (unitIds.length > 0) {
   });
 }
 
+// Last month on its own - at the start of a month this is the one a landlord
+// asks about ("who didn't pay September?"), and it also shows who paid it
+// late, after the month ended.
+const lastPeriod = shiftPeriod(period, -1);
+const { rows: lastRows, error: lastError } = await loadPeriodStatus(landlordId, lastPeriod);
+const lastOwing = lastRows.filter((r) => r.status !== "paid").sort((a, b) => b.balance - a.balance);
+const lastPaidLate = lastRows.filter((r) => r.status === "paid" && !!r.lastPaidAt && (r.lastPaidAt as string).slice(0, 7) > lastPeriodMonthKey(lastPeriod));
+const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const lastOwingLines = lastOwing.map((r) =>
+  r.name + (r.unit ? " (unit " + r.unit + ")" : "") + ": " + (r.status === "partial" ? "PARTIALLY PAID - paid KSh " + r.paid.toLocaleString() + " of KSh " + r.due.toLocaleString() : "NOT PAID - KSh " + r.due.toLocaleString() + " due") + ", still owes KSh " + r.balance.toLocaleString() + (r.movedOut ? " (has moved out)" : "")
+);
+const lastPaidLateLines = lastPaidLate.map((r) => r.name + " paid " + lastPeriod + " in full late, on " + fmtDate(r.lastPaidAt as string));
+
 const occupied = units.filter((u) => u.status === "occupied").length;
 const vacant = units.filter((u) => u.status !== "occupied").length;
 
@@ -153,6 +183,12 @@ const summary = [
   "Active tenants: " + activeTenants.length,
   "Unpaid tenants this period: " + (unpaidLines.length > 0 ? unpaidLines.join("; ") : "none - everyone is paid up"),
   "Paid in full this period: " + (paidLines.length > 0 ? paidLines.join(", ") : "none yet"),
+  "",
+  "LAST MONTH (" + lastPeriod + ") - tenants who did not pay in full:",
+  lastError ? "(could not load " + lastPeriod + ": " + lastError + ")" : lastOwingLines.length > 0 ? lastOwingLines.join("\n") : "none - everyone paid " + lastPeriod + " in full",
+  lastOwingLines.length > 0 ? "Total still owed for " + lastPeriod + ": KSh " + lastOwing.reduce((s, r) => s + r.balance, 0).toLocaleString() : "",
+  "Paid " + lastPeriod + " late (after the month ended): " + (lastPaidLateLines.length > 0 ? lastPaidLateLines.join("; ") : "none"),
+  "",
   "Open maintenance requests: " + (maintenanceLines.length > 0 ? maintenanceLines.join("; ") : "none"),
 ].join("\n");
 
@@ -211,7 +247,7 @@ return (
         {loading ? (
           <p className="text-slate-500">Loading your data...</p>
         ) : messages.length === 0 ? (
-          <p className="text-slate-400">Try asking: "Which tenants haven't paid this month?" or "How many open maintenance requests do I have?"</p>
+          <p className="text-slate-400">Try asking: "Which tenants haven't paid this month?", "Who didn't pay last month in full?" or "How many open maintenance requests do I have?"</p>
         ) : (
           <div className="flex flex-col gap-4">
             {messages.map((m, i) => (

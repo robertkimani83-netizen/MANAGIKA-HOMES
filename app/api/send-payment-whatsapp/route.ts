@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { sendPaymentConfirmation, paymentBalanceText } from "@/lib/payment-confirmation";
+import { tenantOutstanding } from "@/lib/payment-allocation";
 
 const rawUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const supabaseUrl = rawUrl.endsWith("/") ? rawUrl.slice(0, -1) : rawUrl;
@@ -29,6 +30,10 @@ if (userError || !userData.user) return NextResponse.json({ error: "Unauthorized
 
 const body = await request.json();
 const { invoiceId, amountPaid, reference } = body;
+// When one payment was split across months (e.g. the rest of September plus
+// October), the page sends every invoice it touched so ONE message names
+// all of them - never one SMS per month.
+const extraInvoiceIds: string[] = Array.isArray(body.invoiceIds) ? body.invoiceIds.filter((x: unknown) => typeof x === "string" && x !== invoiceId).slice(0, 12) : [];
 if (!invoiceId || !amountPaid) {
   return NextResponse.json({ error: "Missing invoiceId or amountPaid" }, { status: 400 });
 }
@@ -57,20 +62,32 @@ if (invoice.unit_id) {
   unitNumber = unitRow?.unit_number || "";
 }
 
-// The balance line tells the tenant whether this payment settled the
-// invoice or left a balance still owed - based on every payment recorded
-// against this invoice, not just the one just entered.
-const { data: invoicePayments } = await supabaseAdmin
-  .from("payments")
-  .select("amount_paid")
-  .eq("invoice_id", invoiceId);
-const totalPaid = (invoicePayments || []).reduce((sum, p: any) => sum + (Number(p.amount_paid) || 0), 0);
-const balanceText = paymentBalanceText(invoice.total_due, totalPaid);
+// Every extra invoice must belong to the same tenant (and so this landlord).
+const periods = [invoice.billing_period || ""];
+if (extraInvoiceIds.length > 0) {
+  const { data: extras } = await supabaseAdmin.from("invoices").select("id, billing_period, tenant_id").in("id", extraInvoiceIds);
+  for (const extra of (extras || []) as any[]) {
+    if (extra.tenant_id === tenant.id && extra.billing_period && !periods.includes(extra.billing_period)) periods.push(extra.billing_period);
+  }
+}
+
+// The balance line is what the tenant still owes across ALL unpaid months
+// after this payment - so paying September late in October tells them
+// whether they are fully caught up, not just whether one invoice is closed.
+const stillOwed = await tenantOutstanding(supabaseAdmin as any, tenant.id);
+let balanceText: string;
+if (stillOwed !== null) {
+  balanceText = paymentBalanceText(stillOwed, 0);
+} else {
+  const { data: invoicePayments } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", invoiceId);
+  const totalPaid = (invoicePayments || []).reduce((sum, p: any) => sum + (Number(p.amount_paid) || 0), 0);
+  balanceText = paymentBalanceText(invoice.total_due, totalPaid);
+}
 
 const { whatsapp, sms } = await sendPaymentConfirmation(tenant.phone_number, {
   fullName: tenant.full_name || "there",
   amount: Number(amountPaid).toLocaleString(),
-  period: invoice.billing_period || "",
+  period: periods.filter(Boolean).join(" & "),
   unitNumber,
   reference: (reference || "").toString().trim() || "-",
   balanceText,

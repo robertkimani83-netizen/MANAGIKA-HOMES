@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { invoiceStatusFor } from "@/lib/invoice-math";
+import { recordRentPayment } from "@/lib/payment-allocation";
+import { shiftPeriod, periodToIndex } from "@/lib/period";
+import { loadPeriodStatus, type PeriodStatusRow } from "@/lib/period-status";
 
 type Tenant = {
 id: string;
@@ -40,6 +42,13 @@ created_at: string;
 tenants: { full_name: string; phone_number: string | null; units: { unit_number: string } | null } | null;
 };
 
+// "September 2026" for the month a date falls in (landlord's clock).
+function currentPeriodOf(iso: string) {
+const d = new Date(iso);
+const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+return names[d.getMonth()] + " " + d.getFullYear();
+}
+
 function currentPeriod() {
 const d = new Date();
 const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -74,6 +83,19 @@ const [loadError, setLoadError] = useState<string | null>(null);
 const [unmatchedCount, setUnmatchedCount] = useState<number | null>(null);
 
 const period = currentPeriod();
+
+// Which month a manually recorded payment goes to. "auto" = clear the
+// tenant's oldest unpaid month first (same rule as the bank SMS webhook),
+// so September rent paid in October lands on September.
+const [applyTo, setApplyTo] = useState<string>("auto");
+
+// The "Not paid in full" list - defaults to LAST month, since that's the
+// one a landlord chases at the start of a new month.
+const [reviewPeriod, setReviewPeriod] = useState<string>(shiftPeriod(currentPeriod(), -1));
+const [reviewRows, setReviewRows] = useState<PeriodStatusRow[]>([]);
+const [reviewLoading, setReviewLoading] = useState(true);
+const [reviewError, setReviewError] = useState<string | null>(null);
+const recentPeriods = [0, -1, -2, -3, -4, -5].map((n) => shiftPeriod(period, n));
 
 // Lets the dashboard's "Record Payment" button land here with the form
 // already open (/payments?record=1).
@@ -210,6 +232,31 @@ if (!error && data) setPayments(data as unknown as Payment[]);
 setLoading(false);
 }
 
+async function loadReview(id: string, month: string) {
+setReviewLoading(true);
+const result = await loadPeriodStatus(id, month);
+setReviewRows(result.rows);
+setReviewError(result.error);
+setReviewLoading(false);
+}
+
+useEffect(() => {
+if (!landlordId) return;
+loadReview(landlordId, reviewPeriod);
+}, [landlordId, reviewPeriod]);
+
+// "Record payment" on a row of the Not-paid list: open the form with that
+// tenant and that month already chosen.
+function recordForMonth(row: PeriodStatusRow) {
+const tenant = tenants.find((t) => t.id === row.tenantId);
+if (!tenant) { alert("This tenant is no longer active, so a payment can't be recorded from here."); return; }
+setTenantId(tenant.id);
+setTenantSearch(tenant.full_name + " — " + (tenant.units?.unit_number || ""));
+setApplyTo(reviewPeriod);
+setShowForm(true);
+window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
 useEffect(() => {
 if (!landlordId) return;
 loadTenants(landlordId);
@@ -229,53 +276,49 @@ const rent = Number(tenant.units.base_rent) || 0;
 setSavingPayment(true);
 try {
 
-const { data: existingInvoice, error: invoiceLookupError } = await supabase.from("invoices").select("id, total_due").eq("tenant_id", tenantId).eq("billing_period", period).maybeSingle();
-if (invoiceLookupError) { alert("Error checking invoice: " + invoiceLookupError.message); return; }
+const today = new Date();
+const result = await recordRentPayment(supabase, {
+  tenantId,
+  unitId: tenant.unit_id,
+  rent,
+  amount: amt,
+  method,
+  reference: reference.trim() || null,
+  currentPeriod: period,
+  applyTo,
+  currentDueDate: today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0"),
+});
+if (!result.ok) {
+  alert(result.code === "23505" ? "A payment with this reference is already recorded." : "Error recording payment: " + result.error);
+  return;
+}
+if (result.statusErrors.length > 0) alert("Payment saved, but invoice status could not be updated: " + result.statusErrors.join("; "));
 
-let invoiceId = existingInvoice?.id;
-let totalDue = existingInvoice ? Number(existingInvoice.total_due) : rent;
-
-if (!invoiceId) {
-  const dueDate = new Date();
-  const { data: newInvoice, error: invError } = await supabase.from("invoices").insert({ invoice_number: "INV-" + Date.now(), tenant_id: tenantId, unit_id: tenant.unit_id, billing_period: period, rent_amount: rent, total_due: rent, status: "unpaid", due_date: dueDate.getFullYear() + "-" + String(dueDate.getMonth() + 1).padStart(2, "0") + "-" + String(dueDate.getDate()).padStart(2, "0") }).select("id").single();
-  if (invError || !newInvoice) { alert("Error creating invoice: " + (invError?.message || "unknown error")); return; }
-  invoiceId = newInvoice.id;
-  totalDue = rent;
+const months = Array.from(new Set(result.allocations.map((a) => a.period)));
+if (months.length > 1 || months[0] !== period) {
+  alert("Payment saved and applied to: " + result.allocations.map((a) => a.period + " (KSh " + a.amount.toLocaleString() + ")").join(", "));
 }
 
-const { error: payError } = await supabase.from("payments").insert({ invoice_id: invoiceId, amount_paid: amt, payment_method: method, transaction_reference: reference.trim() || null });
-if (payError) { alert("Error recording payment: " + payError.message); return; }
-
-const { data: invoicePayments } = await supabase.from("payments").select("amount_paid").eq("invoice_id", invoiceId);
-const totalPaid = (invoicePayments || []).reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
-
-const newStatus = invoiceStatusFor(totalDue, totalPaid);
-
-const { error: statusError } = await supabase.from("invoices").update({ status: newStatus }).eq("id", invoiceId);
-if (statusError) alert("Payment saved, but invoice status could not be updated: " + statusError.message);
-
-// Notify the tenant over WhatsApp that their payment was received -
-// whether it fully paid off the invoice or left a balance. This is
-// best-effort and never blocks the payment from being saved: the payment
-// and invoice status above are already committed regardless of whether
-// this send succeeds (e.g. the template isn't approved yet).
-if (!statusError) {
+// Notify the tenant (WhatsApp + SMS) - ONE message naming every month this
+// payment covered. Best-effort: the payment is already saved regardless.
+if (result.statusErrors.length === 0) {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token || "";
     await fetch("/api/send-payment-whatsapp", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
-      body: JSON.stringify({ invoiceId, amountPaid: amt, reference: reference.trim() || method }),
+      body: JSON.stringify({ invoiceId: result.allocations[0].invoiceId, invoiceIds: result.allocations.map((a) => a.invoiceId), amountPaid: amt, reference: reference.trim() || method }),
     });
   } catch {
     // Silently ignore - payment recording already succeeded above.
   }
 }
 
-setTenantId(""); setTenantSearch(""); setAmount(""); setReference(""); setMethod("mpesa"); setShowForm(false);
+setTenantId(""); setTenantSearch(""); setAmount(""); setReference(""); setMethod("mpesa"); setApplyTo("auto"); setShowForm(false);
 loadPayments(landlordId);
 loadUnpaidInvoices(landlordId);
+loadReview(landlordId, reviewPeriod);
 
 } finally {
 setSavingPayment(false);
@@ -447,11 +490,11 @@ return (
 
     {showForm && (
       <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
-        <h3 className="mb-5 text-xl font-bold text-slate-900">Record Payment — {period}</h3>
+        <h3 className="mb-5 text-xl font-bold text-slate-900">Record Payment</h3>
         {tenants.length === 0 ? (
           <p className="text-slate-500">Add an active tenant with a unit assigned first.</p>
         ) : (
-          <div className="grid gap-5 md:grid-cols-4">
+          <div className="grid gap-5 md:grid-cols-5">
             <div className="relative">
               <label className="mb-2 block text-sm font-medium text-slate-700">Tenant</label>
               <input
@@ -509,8 +552,29 @@ return (
               <label className="mb-2 block text-sm font-medium text-slate-700">Reference</label>
               <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. M-Pesa code" className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
             </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Apply to month</label>
+              <select value={applyTo} onChange={(e) => setApplyTo(e.target.value)} className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
+                <option value="auto">Auto — oldest unpaid first</option>
+                {recentPeriods.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
           </div>
         )}
+        {tenantId && applyTo === "auto" && (() => {
+          const earlier = unpaidInvoices
+            .filter((inv) => inv.tenant_id === tenantId && (periodToIndex(inv.billing_period) ?? Infinity) < (periodToIndex(period) ?? 0))
+            .map((inv) => ({ period: inv.billing_period, owed: Math.max((Number(inv.total_due) || 0) - (paidByInvoice[inv.id] || 0), 0) }))
+            .filter((x) => x.owed > 0)
+            .sort((a, b) => (periodToIndex(a.period) ?? 0) - (periodToIndex(b.period) ?? 0));
+          return earlier.length > 0 ? (
+            <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              This tenant still owes {earlier.map((x) => x.period + " (KSh " + x.owed.toLocaleString() + ")").join(", ")}. The payment will clear {earlier.length === 1 ? "that" : "those, oldest first,"} before anything goes to {period}.
+            </p>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">No earlier unpaid months — this payment goes to {period}.</p>
+          );
+        })()}
         <div className="mt-6 flex gap-3">
           <button onClick={recordPayment} disabled={savingPayment} className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-800 disabled:opacity-60">{savingPayment ? "Saving..." : "Save Payment"}</button>
           <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -635,6 +699,76 @@ return (
           </tbody>
         </table>
       </div>
+    </div>
+
+    <div id="not-paid" className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
+      {(() => {
+        const owing = reviewRows.filter((r) => r.status !== "paid").sort((a, b) => b.balance - a.balance);
+        const totalOwed = owing.reduce((sum, r) => sum + r.balance, 0);
+        const paidLate = reviewRows.filter((r) => r.status === "paid" && r.lastPaidAt && (periodToIndex(currentPeriodOf(r.lastPaidAt)) ?? 0) > (periodToIndex(reviewPeriod) ?? 0)).length;
+        return (
+          <>
+            <div className="border-b px-6 py-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-xl font-semibold">Not paid in full — {reviewPeriod}</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {reviewLoading ? "Loading..." : owing.length === 0 ? "Everyone paid " + reviewPeriod + " in full." : owing.length + " tenant" + (owing.length === 1 ? "" : "s") + " still owe KSh " + totalOwed.toLocaleString() + " for " + reviewPeriod + "."}
+                  {!reviewLoading && paidLate > 0 && " " + paidLate + " paid it late, after the month ended."}
+                </p>
+              </div>
+              <select value={reviewPeriod} onChange={(e) => setReviewPeriod(e.target.value)} className="shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm">
+                {recentPeriods.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            {reviewError && <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700">Could not load this month ({reviewError}). Please refresh.</div>}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Tenant</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Unit</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Due</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Paid</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Balance</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Status</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Last payment</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviewLoading ? (
+                    <tr><td colSpan={8} className="px-6 py-10 text-center text-slate-500">Loading {reviewPeriod}...</td></tr>
+                  ) : owing.length === 0 ? (
+                    <tr><td colSpan={8} className="px-6 py-10 text-center text-slate-500">Nobody owes anything for {reviewPeriod}. 🎉</td></tr>
+                  ) : (
+                    owing.map((row) => (
+                      <tr key={row.tenantId + (row.invoiceId || "")} className="border-t">
+                        <td className="whitespace-nowrap px-6 py-4 font-medium">
+                          {row.name}
+                          {row.movedOut && <span className="ml-2 text-xs font-normal text-slate-400">(moved out)</span>}
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4">{row.unit || "—"}</td>
+                        <td className="whitespace-nowrap px-6 py-4">KSh {row.due.toLocaleString()}</td>
+                        <td className={"whitespace-nowrap px-6 py-4 font-medium " + (row.paid > 0 ? "text-green-700" : "text-slate-400")}>KSh {row.paid.toLocaleString()}</td>
+                        <td className="whitespace-nowrap px-6 py-4 font-semibold text-red-700">KSh {row.balance.toLocaleString()}</td>
+                        <td className="whitespace-nowrap px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + statusClasses(row.status === "partial" ? "Partially Paid" : "Unpaid")}>{row.status === "partial" ? "Partially Paid" : "Unpaid"}</span></td>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">{row.lastPaidAt ? new Date(row.lastPaidAt).toLocaleDateString() : "—"}</td>
+                        <td className="whitespace-nowrap px-6 py-4">
+                          {!row.movedOut && (
+                            <button onClick={() => recordForMonth(row)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                              Record payment
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        );
+      })()}
     </div>
 
     <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
