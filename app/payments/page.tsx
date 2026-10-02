@@ -30,7 +30,10 @@ invoices: { id: string; billing_period: string; total_due: number; status: strin
 // months are kept separate in priorParts (e.g. "September 2026: 1,500") so a
 // September balance is never mixed into October's figures. balance = month
 // balance + earlier months, used only for the all-months Outstanding total.
-type TenantSummary = { tenant: Tenant; expected: number; paid: number; monthBalance: number; balance: number; status: string; priorBalance: number; priorParts: { period: string; owed: number }[] };
+// lastMonthOwed comes from the same source as the "Not paid in full" list,
+// so tenants with NO invoice for last month (most were added mid-September)
+// still show what they owe for it. olderParts = months before last month.
+type TenantSummary = { tenant: Tenant; expected: number; paid: number; monthBalance: number; balance: number; status: string; priorBalance: number; priorParts: { period: string; owed: number }[]; lastMonthOwed: number | null; olderParts: { period: string; owed: number }[] };
 
 // An invoice that isn't fully paid, from ANY billing period - not just the
 // current month. Without this, a tenant who misses a month and then pays
@@ -99,6 +102,9 @@ const [applyTo, setApplyTo] = useState<string>("auto");
 // one a landlord chases at the start of a new month.
 const [reviewPeriod, setReviewPeriod] = useState<string>(shiftPeriod(currentPeriod(), -1));
 const [reviewRows, setReviewRows] = useState<PeriodStatusRow[]>([]);
+// Last month for every tenant, for the "Not paid — <last month>" column.
+const lastPeriod = shiftPeriod(currentPeriod(), -1);
+const [lastMonthRows, setLastMonthRows] = useState<PeriodStatusRow[]>([]);
 const [reviewLoading, setReviewLoading] = useState(true);
 const [reviewError, setReviewError] = useState<string | null>(null);
 const recentPeriods = [0, -1, -2, -3, -4, -5].map((n) => shiftPeriod(period, n));
@@ -407,6 +413,13 @@ const result = await loadPeriodStatus(id, month);
 setReviewRows(result.rows);
 setReviewError(result.error);
 setReviewLoading(false);
+// Keep the last-month column in Rent Status up to date too.
+if (month === lastPeriod) {
+  if (!result.error) setLastMonthRows(result.rows);
+} else {
+  const last = await loadPeriodStatus(id, lastPeriod);
+  if (!last.error) setLastMonthRows(last.rows);
+}
 }
 
 useEffect(() => {
@@ -505,7 +518,8 @@ if (!summary.tenant.phone_number) return { ok: false, error: "no phone number on
 try {
 // Each month named separately, never one mixed total.
 const owedParts = [
-  ...summary.priorParts.map((x) => "KSh " + x.owed.toLocaleString() + " for " + x.period),
+  ...summary.olderParts.map((x) => "KSh " + x.owed.toLocaleString() + " for " + x.period),
+  ...(summary.lastMonthOwed ? ["KSh " + summary.lastMonthOwed.toLocaleString() + " for " + lastPeriod] : []),
   ...(summary.monthBalance > 0 ? ["KSh " + summary.monthBalance.toLocaleString() + " for " + period] : []),
 ];
 const message = "Hi " + summary.tenant.full_name + ", this is a reminder from Managika Homes that your rent balance of " + owedParts.join(" and ") + " is due. Please make payment at your earliest convenience.";
@@ -615,8 +629,12 @@ const monthBalance = Math.max(expected - paid, 0);
 let status = "Unpaid";
 if (expected > 0 && monthBalance === 0) status = "Paid";
 else if (paid > 0) status = "Partially Paid";
-const balance = monthBalance + priorBalance;
-return { tenant, expected, paid, monthBalance, balance, status, priorBalance, priorParts };
+const lastRows = lastMonthRows.filter((r) => r.tenantId === tenant.id);
+const lastMonthOwed = lastRows.length > 0 ? lastRows.reduce((sum, r) => sum + r.balance, 0) : null;
+const olderParts = priorParts.filter((x) => x.period !== lastPeriod);
+const olderOwed = olderParts.reduce((sum, x) => sum + x.owed, 0);
+const balance = monthBalance + (lastMonthOwed ?? 0) + olderOwed;
+return { tenant, expected, paid, monthBalance, balance, status, priorBalance, priorParts, lastMonthOwed, olderParts };
 });
 
 const rentExpected = tenantSummaries.reduce((sum, item) => sum + item.expected, 0);
@@ -843,7 +861,7 @@ return (
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Paid</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Balance</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Status</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Earlier months owed</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Not paid — {lastPeriod}</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Reminder</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600"></th>
             </tr>
@@ -865,13 +883,16 @@ return (
                   <td className="whitespace-nowrap px-6 py-4 font-medium">KSh {item.monthBalance.toLocaleString()}</td>
                   <td className="whitespace-nowrap px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + statusClasses(item.status)}>{item.status}</span></td>
                   <td className="whitespace-nowrap px-6 py-4 text-sm">
-                    {item.priorParts.length === 0 ? (
+                    {item.lastMonthOwed === null ? (
                       <span className="text-slate-400">—</span>
+                    ) : item.lastMonthOwed > 0 ? (
+                      <span className="font-semibold text-red-700">KSh {item.lastMonthOwed.toLocaleString()}</span>
                     ) : (
-                      item.priorParts.map((x) => (
-                        <div key={x.period} className="font-medium text-red-700">KSh {x.owed.toLocaleString()} <span className="font-normal text-red-600">({x.period})</span></div>
-                      ))
+                      <span className="font-medium text-green-700">Paid</span>
                     )}
+                    {item.olderParts.map((x) => (
+                      <div key={x.period} className="mt-0.5 text-xs text-red-600">+ KSh {x.owed.toLocaleString()} ({x.period})</div>
+                    ))}
                   </td>
                   <td className="whitespace-nowrap px-6 py-4">
                     {item.balance > 0 && (
