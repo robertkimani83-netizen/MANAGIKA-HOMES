@@ -351,3 +351,12 @@ export async function setRentDue(
   const statusError = await refreshInvoiceStatus(db, invoice.id);
   return statusError ? { ok: false, error: "Saved, but status not updated: " + statusError } : { ok: true };
 }
+
+// Remove a payment entered by mistake (e.g. the same payment saved twice),
+// then re-check that month's invoice so it goes back to unpaid/partial.
+export async function deletePayment(db: SupabaseClient, paymentId: string, invoiceId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await db.from("payments").delete().eq("id", paymentId);
+  if (error) return { ok: false, error: error.message };
+  const statusError = await refreshInvoiceStatus(db, invoiceId);
+  return statusError ? { ok: false, error: "Deleted, but the month's status was not updated: " + statusError } : { ok: true };
+}

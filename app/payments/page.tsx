@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { recordRentPayment, editPayment, setRentDue } from "@/lib/payment-allocation";
+import { recordRentPayment, editPayment, setRentDue, deletePayment } from "@/lib/payment-allocation";
 import { shiftPeriod, periodToIndex, periodStartDate } from "@/lib/period";
 import { loadPeriodStatus, type PeriodStatusRow } from "@/lib/period-status";
 
@@ -149,6 +149,24 @@ try {
   if (!result.ok) { alert("Could not save: " + result.error); return; }
   if (result.warnings.length > 0) alert("Saved, but a status could not be updated: " + result.warnings.join("; "));
   setEditingPayment(null);
+  loadPayments(landlordId);
+  loadUnpaidInvoices(landlordId);
+  loadReview(landlordId, reviewPeriod);
+} finally {
+  setSavingEdit(false);
+}
+}
+
+async function removePayment(p: Payment) {
+if (!landlordId || savingEdit || !p.invoices?.id) return;
+const who = (p.invoices.tenants?.full_name || "this tenant") + " (" + (p.invoices.units?.unit_number || "—") + ")";
+if (!confirm("Delete this payment of KSh " + Number(p.amount_paid).toLocaleString() + " from " + who + " for " + p.invoices.billing_period + "?\n\nOnly do this for a payment entered by mistake, e.g. saved twice. This cannot be undone.")) return;
+setSavingEdit(true);
+try {
+  const result = await deletePayment(supabase, p.id, p.invoices.id);
+  if (!result.ok) { alert("Could not delete: " + result.error); return; }
+  setEditingPayment(null);
+  setEditingMonth(null);
   loadPayments(landlordId);
   loadUnpaidInvoices(landlordId);
   loadReview(landlordId, reviewPeriod);
@@ -1015,6 +1033,7 @@ return (
           <div className="mt-5 flex gap-3">
             <button onClick={saveEditedPayment} disabled={savingEdit} className="rounded-lg bg-slate-900 px-5 py-2.5 font-medium text-white hover:bg-slate-800 disabled:opacity-60">{savingEdit ? "Saving..." : "Save"}</button>
             <button onClick={() => setEditingPayment(null)} disabled={savingEdit} className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+            <button onClick={() => removePayment(editingPayment.payment)} disabled={savingEdit} className="ml-auto rounded-lg border border-red-300 bg-white px-4 py-2.5 font-medium text-red-700 hover:bg-red-50 disabled:opacity-60">Delete</button>
           </div>
         </div>
       </div>
@@ -1038,9 +1057,12 @@ return (
             <div className="mt-2 grid gap-3">
               {e.payments.map((row, i) => (
                 <div key={row.payment.id} className="rounded-lg border border-slate-200 p-3">
-                  <p className="text-xs text-slate-500">
-                    Paid {new Date(row.payment.paid_at).toLocaleDateString()} · {row.payment.payment_method.replace("_", " ")}{row.payment.transaction_reference ? " · " + row.payment.transaction_reference : ""}
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-slate-500">
+                      Paid {new Date(row.payment.paid_at).toLocaleDateString()} · {row.payment.payment_method.replace("_", " ")}{row.payment.transaction_reference ? " · " + row.payment.transaction_reference : ""}
+                    </p>
+                    <button onClick={() => removePayment(row.payment)} disabled={savingEdit} className="shrink-0 text-xs font-medium text-red-700 hover:underline disabled:opacity-50">Delete</button>
+                  </div>
                   <input
                     type="number"
                     min="0"
