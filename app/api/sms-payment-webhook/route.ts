@@ -4,7 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { secureCompare } from "@/lib/secure-compare";
 import { sendPaymentConfirmation, paymentBalanceText } from "@/lib/payment-confirmation";
 import { sendAdminAlert } from "@/lib/admin-alert";
-import { invoiceStatusFor } from "@/lib/invoice-math";
+import { recordRentPayment, tenantOutstanding, allocationPeriodsText } from "@/lib/payment-allocation";
+import { nairobiDate } from "@/lib/period";
 
 // Auto-confirms rent payments detected from Family Bank SMS forwarded off
 // mum's phone (paybill 222111, her personal Account 27833 - shared across
@@ -176,75 +177,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: "duplicate_ignored" });
     }
 
-    const d = new Date();
+    // Oldest unpaid month first: a tenant who missed September and pays in
+    // October clears September before anything lands on October. See
+    // lib/payment-allocation.ts. The amount owed on a newly created invoice
+    // comes from the unit's own rent, never from what happened to be paid.
     const period = nairobiPeriod();
-
-    // The amount owed comes from the unit's own rent, never from what happened
-    // to be paid: a KSh 1,200 payment against a 10,000 rent must show as
-    // partially paid, not as a fully settled 1,200 invoice. Units with no rent
-    // set keep the old behaviour so their payment is still recorded.
-    const unitRent = Number(unit.base_rent) || 0;
-    const invoiceTotal = unitRent > 0 ? unitRent : amount;
-
-    let invoice: { id: string; total_due: number } | null = null;
-    const findInvoice = async () => {
-      const { data } = await supabaseAdmin
-        .from("invoices")
-        .select("id, total_due")
-        .eq("tenant_id", tenant.id)
-        .eq("billing_period", period)
-        .maybeSingle();
-      return (data as any) || null;
-    };
-
-    invoice = await findInvoice();
-    if (!invoice) {
-      const { data: newInvoice } = await supabaseAdmin
-        .from("invoices")
-        .insert({
-          invoice_number: "INV-" + Date.now(),
-          tenant_id: tenant.id,
-          unit_id: unit.id,
-          billing_period: period,
-          rent_amount: invoiceTotal,
-          total_due: invoiceTotal,
-          status: "unpaid",
-          due_date: d.toISOString().slice(0, 10),
-        })
-        .select("id, total_due")
-        .single();
-      // If a concurrent request (or the monthly cron) created it first, use theirs.
-      invoice = (newInvoice as any) || (await findInvoice());
-    }
-
-    if (!invoice) {
-      await logUnmatched({ rawBody, sender: from, messageText: text, reason: "invoice_create_failed", amount, houseTag, payerName, mpesaRef });
-      return NextResponse.json({ status: "error" });
-    }
-
-    const { error: paymentError } = await supabaseAdmin.from("payments").insert({
-      invoice_id: invoice.id,
-      amount_paid: amount,
-      payment_method: "bank_transfer",
-      transaction_reference: mpesaRef,
+    const recorded = await recordRentPayment(supabaseAdmin as any, {
+      tenantId: tenant.id,
+      unitId: unit.id,
+      rent: Number(unit.base_rent) || 0,
+      amount,
+      method: "bank_transfer",
+      reference: mpesaRef,
+      currentPeriod: period,
+      applyTo: "auto",
+      currentDueDate: nairobiDate(),
     });
-    if (paymentError) {
+    if (!recorded.ok) {
       // 23505 = unique violation on transaction_reference: a concurrent
       // delivery of the same SMS won the race - already recorded, not an error.
-      if ((paymentError as any).code === "23505") {
+      if (recorded.code === "23505") {
         return NextResponse.json({ status: "duplicate_ignored" });
       }
       await sendAdminAlert("payment-not-saved", "Bank SMS payment of KSh " + amount + " (ref " + mpesaRef + ", #" + houseTag + ") did NOT save. Check Vercel logs.");
-      throw new Error("could not store payment: " + paymentError.message);
+      throw new Error("could not store payment: " + recorded.error);
     }
     paymentRecorded = true;
 
-    const { data: allPayments } = await supabaseAdmin.from("payments").select("amount_paid").eq("invoice_id", invoice.id);
-    const totalPaid = (allPayments || []).reduce((sum, p: any) => sum + (Number(p.amount_paid) || 0), 0);
-    const newStatus = invoiceStatusFor(invoice.total_due, totalPaid);
-    const { error: statusError } = await supabaseAdmin.from("invoices").update({ status: newStatus }).eq("id", invoice.id);
-    if (statusError) {
-      // The payment row is safe, but the invoice would keep showing "unpaid".
+    if (recorded.statusErrors.length > 0) {
+      // The payment rows are safe, but an invoice would keep showing "unpaid".
       // Surface it on the Unmatched SMS page rather than failing silently.
       await logUnmatched({ rawBody, sender: from, messageText: text, reason: "invoice_status_update_failed", amount, houseTag, payerName, mpesaRef });
       return NextResponse.json({ status: "recorded_with_warnings" });
@@ -257,11 +218,13 @@ export async function POST(request: Request) {
     // the invoice or left a balance still owed.
     if (tenant.phone_number) {
       try {
-        const balanceText = paymentBalanceText(invoice.total_due, totalPaid);
+        // What the tenant still owes across ALL months after this payment.
+        const stillOwed = await tenantOutstanding(supabaseAdmin as any, tenant.id);
+        const balanceText = stillOwed === null ? "" : paymentBalanceText(stillOwed, 0);
         const { whatsapp, sms } = await sendPaymentConfirmation(tenant.phone_number, {
           fullName: tenant.full_name || "there",
           amount: amount.toLocaleString(),
-          period,
+          period: allocationPeriodsText(recorded.allocations),
           unitNumber: unit.unit_number,
           reference: mpesaRef,
           balanceText,
@@ -283,7 +246,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ status: "recorded" });
+    return NextResponse.json({ status: "recorded", periods: recorded.allocations.map((a) => a.period) });
   } catch (error: any) {
     // Always leave a trace in sms_payment_log so a failure is visible on the
     // "Unmatched bank SMS" page instead of only in Vercel logs.
