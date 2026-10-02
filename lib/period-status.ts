@@ -1,14 +1,16 @@
 import { supabase } from "@/lib/supabase";
-import { periodStartDate } from "@/lib/period";
+import { periodStartDate, shiftPeriod } from "@/lib/period";
 
 // "Who didn't pay in full for <month>" - shared by the Payments page's
 // previous-month list and the AI assistant, so both always agree.
 //
 // Read with the landlord's own login (RLS keeps it to their tenants). A
 // tenant counts for the month if they have an invoice for it. An active
-// tenant with NO invoice for the month is also listed as unpaid, but only if
-// they had already joined before that month started - otherwise someone who
-// moved in during October would wrongly show as owing September.
+// tenant with NO invoice for the month is also listed as unpaid (no payment
+// recorded) - many tenants were added to the app partway through September
+// 2026 and never got a September invoice, but they still owed September.
+// The only ones left out are tenants whose joined date or lease start is
+// AFTER that month ended (they moved in later, so they owe nothing for it).
 
 export type PeriodStatusRow = {
   tenantId: string;
@@ -37,7 +39,7 @@ export async function loadPeriodStatus(landlordId: string, period: string): Prom
       .eq("billing_period", period),
     supabase
       .from("tenants")
-      .select("id, full_name, phone_number, joined_at, unit_id, units(unit_number, base_rent, status, properties(property_name))")
+      .select("id, full_name, phone_number, joined_at, lease_start_date, unit_id, units(unit_number, base_rent, status, properties(property_name))")
       .eq("landlord_id", landlordId)
       .eq("status", "active"),
   ]);
@@ -83,15 +85,17 @@ export async function loadPeriodStatus(landlordId: string, period: string): Prom
     });
   }
 
-  const monthStart = periodStartDate(period);
+  const nextMonthStart = periodStartDate(shiftPeriod(period, 1));
   for (const t of (tenants || []) as any[]) {
     if (tenantsWithInvoice.has(t.id)) continue;
     const unit = t.units;
     if (!unit || unit.status !== "occupied") continue;
     const rent = Number(unit.base_rent) || 0;
     if (rent <= 0) continue;
-    // Only tenants already living there when the month began.
-    if (!t.joined_at || !monthStart || String(t.joined_at).slice(0, 10) > monthStart) continue;
+    // Skip only tenants who clearly moved in after the month was over.
+    const joined = t.joined_at ? String(t.joined_at).slice(0, 10) : "";
+    const leaseStart = t.lease_start_date ? String(t.lease_start_date).slice(0, 10) : "";
+    if (nextMonthStart && ((joined && joined >= nextMonthStart) || (leaseStart && leaseStart >= nextMonthStart))) continue;
     rows.push({
       tenantId: t.id,
       invoiceId: null,

@@ -226,9 +226,50 @@ try {
 
 async function loadPayments(id: string) {
 setLoading(true);
-const { data, error } = await supabase.from("payments").select("id, amount_paid, payment_method, transaction_reference, paid_at, invoices!inner(id, billing_period, total_due, status, tenants!inner(id, full_name, landlord_id), units(unit_number))").eq("invoices.tenants.landlord_id", id).order("paid_at", { ascending: false });
-if (error) setLoadError("Some of your data could not be loaded (" + error.message + "). Please refresh the page before trusting the amounts below.");
-if (!error && data) setPayments(data as unknown as Payment[]);
+// Two simple steps instead of one big nested query. Asking for
+// payments -> invoices -> tenants in a single request made the database
+// check its access rules on every row of all three tables, and it started
+// hitting the database's time limit ("statement timeout") - so Payment
+// History showed "No payments have been recorded yet" even though there
+// were payments. Step 1: this landlord's invoices. Step 2: the payments on
+// them, in batches.
+const { data: invoiceRows, error: invoiceError } = await supabase
+  .from("invoices")
+  .select("id, billing_period, total_due, status, tenants!inner(id, full_name, landlord_id), units(unit_number)")
+  .eq("tenants.landlord_id", id);
+if (invoiceError) {
+  setLoadError("Some of your data could not be loaded (" + invoiceError.message + "). Please refresh the page before trusting the amounts below.");
+  setLoading(false);
+  return;
+}
+const invoiceById: Record<string, any> = {};
+for (const inv of (invoiceRows || []) as any[]) invoiceById[inv.id] = inv;
+const ids = Object.keys(invoiceById);
+const collected: Payment[] = [];
+for (let start = 0; start < ids.length; start += 100) {
+  const { data, error } = await supabase
+    .from("payments")
+    .select("id, amount_paid, payment_method, transaction_reference, paid_at, invoice_id")
+    .in("invoice_id", ids.slice(start, start + 100));
+  if (error) {
+    setLoadError("Some of your data could not be loaded (" + error.message + "). Please refresh the page before trusting the amounts below.");
+    setLoading(false);
+    return;
+  }
+  for (const p of (data || []) as any[]) {
+    const inv = invoiceById[p.invoice_id];
+    collected.push({
+      id: p.id,
+      amount_paid: p.amount_paid,
+      payment_method: p.payment_method,
+      transaction_reference: p.transaction_reference,
+      paid_at: p.paid_at,
+      invoices: inv ? { id: inv.id, billing_period: inv.billing_period, total_due: inv.total_due, status: inv.status, tenants: inv.tenants ? { id: inv.tenants.id, full_name: inv.tenants.full_name } : null, units: inv.units || null } : null,
+    });
+  }
+}
+collected.sort((a, b) => String(b.paid_at || "").localeCompare(String(a.paid_at || "")));
+setPayments(collected);
 setLoading(false);
 }
 
