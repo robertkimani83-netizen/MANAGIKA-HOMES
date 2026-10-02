@@ -9,8 +9,8 @@ import { periodStartDate, shiftPeriod } from "@/lib/period";
 // tenant with NO invoice for the month is also listed as unpaid (no payment
 // recorded) - many tenants were added to the app partway through September
 // 2026 and never got a September invoice, but they still owed September.
-// The only ones left out are tenants whose joined date or lease start is
-// AFTER that month ended (they moved in later, so they owe nothing for it).
+// The only ones left out are tenants who moved in AFTER that month ended
+// (lease start date if set, otherwise the day they were added to the app).
 
 export type PeriodStatusRow = {
   tenantId: string;
@@ -92,10 +92,14 @@ export async function loadPeriodStatus(landlordId: string, period: string): Prom
     if (!unit || unit.status !== "occupied") continue;
     const rent = Number(unit.base_rent) || 0;
     if (rent <= 0) continue;
-    // Skip only tenants who clearly moved in after the month was over.
-    const joined = t.joined_at ? String(t.joined_at).slice(0, 10) : "";
+    // Skip only tenants who moved in after the month was over. The lease
+    // start date wins when it's filled in: joined_at is just the day the
+    // tenant was typed into the app, so a tenant added in October who has
+    // lived there since August (lease start 2026-08-01) must still show as
+    // owing September.
     const leaseStart = t.lease_start_date ? String(t.lease_start_date).slice(0, 10) : "";
-    if (nextMonthStart && ((joined && joined >= nextMonthStart) || (leaseStart && leaseStart >= nextMonthStart))) continue;
+    const movedIn = leaseStart || (t.joined_at ? String(t.joined_at).slice(0, 10) : "");
+    if (nextMonthStart && movedIn && movedIn >= nextMonthStart) continue;
     rows.push({
       tenantId: t.id,
       invoiceId: null,
