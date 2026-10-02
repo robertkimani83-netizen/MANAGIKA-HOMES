@@ -61,7 +61,7 @@ let tenantLookup = supabaseAdmin
 tenantLookup = authedUser.email
   ? tenantLookup.eq("email", authedUser.email)
   : tenantLookup.in("phone_number", phoneVariants(authedUser.phone as string));
-const { data: tenant, error: tenantError } = await tenantLookup.maybeSingle();
+const { data: tenant, error: tenantError } = await tenantLookup.order("joined_at", { ascending: true }).limit(1).maybeSingle();
 
 if (tenantError || !tenant || !tenant.landlord_id) {
   return NextResponse.json({ error: "Could not find your tenant record" }, { status: 400 });

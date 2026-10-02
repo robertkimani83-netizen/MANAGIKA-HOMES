@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
     let tenantQuery = supabaseAdmin.from("tenants").select("id, unit_id");
     tenantQuery = authedUser.email ? tenantQuery.eq("email", authedUser.email) : tenantQuery.in("phone_number", phoneVariants(authedUser.phone as string));
-    const { data: tenant, error: tenantError } = await tenantQuery.maybeSingle();
+    const { data: tenant, error: tenantError } = await tenantQuery.order("joined_at", { ascending: true }).limit(1).maybeSingle();
     if (tenantError || !tenant || !tenant.unit_id) return NextResponse.json({ error: "Tenant record not found" }, { status: 404 });
 
     // Ten photos an hour is far more than a real complaint needs.

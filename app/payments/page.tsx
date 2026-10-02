@@ -998,6 +998,7 @@ return (
         <table className="w-full">
           <thead className="bg-slate-50">
             <tr>
+              <th className="whitespace-nowrap px-4 py-4 text-left text-sm font-semibold text-slate-600"></th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Tenant</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Unit</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Amount</th>
@@ -1006,7 +1007,6 @@ return (
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Reference</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Date</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Status</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600"></th>
             </tr>
           </thead>
           <tbody>
@@ -1017,6 +1017,14 @@ return (
             ) : (
               payments.map((payment) => (
                 <tr key={payment.id} className="border-t">
+                  <td className="whitespace-nowrap px-4 py-4">
+                    <button
+                      onClick={() => setEditingPayment({ payment, amount: String(payment.amount_paid), method: payment.payment_method, reference: payment.transaction_reference || "", period: payment.invoices?.billing_period || period })}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Edit
+                    </button>
+                  </td>
                   <td className="whitespace-nowrap px-6 py-4 font-medium">{payment.invoices?.tenants?.full_name || "—"}</td>
                   <td className="whitespace-nowrap px-6 py-4">{payment.invoices?.units?.unit_number || "—"}</td>
                   <td className="whitespace-nowrap px-6 py-4 font-medium">KSh {Number(payment.amount_paid).toLocaleString()}</td>
@@ -1025,14 +1033,6 @@ return (
                   <td className="whitespace-nowrap px-6 py-4">{payment.transaction_reference || "—"}</td>
                   <td className="whitespace-nowrap px-6 py-4">{new Date(payment.paid_at).toLocaleDateString()}</td>
                   <td className="whitespace-nowrap px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + statusClasses(payment.invoices?.status === "paid" ? "Paid" : payment.invoices?.status === "partially_paid" ? "Partially Paid" : "Unpaid")}>{payment.invoices?.status ? payment.invoices.status.replace("_", " ") : "—"}</span></td>
-                  <td className="whitespace-nowrap px-6 py-4">
-                    <button
-                      onClick={() => setEditingPayment({ payment, amount: String(payment.amount_paid), method: payment.payment_method, reference: payment.transaction_reference || "", period: payment.invoices?.billing_period || period })}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Edit
-                    </button>
-                  </td>
                 </tr>
               ))
             )}

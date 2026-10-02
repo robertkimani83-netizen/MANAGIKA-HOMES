@@ -90,7 +90,7 @@ export default function TenantDashboard() {
     // table already scopes this to exactly the caller's own row, matching by
     // whichever of email or phone their account was authenticated with. That
     // lets phone-only tenants (no email on file) load their dashboard too.
-    const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, unit_id, landlord_id, units(unit_number, base_rent, properties(property_name))").maybeSingle();
+    const { data: tenantRow } = await supabase.from("tenants").select("id, full_name, phone_number, email, unit_id, landlord_id, units(unit_number, base_rent, properties(property_name))").order("joined_at", { ascending: true }).limit(1).maybeSingle();
     if (!tenantRow) { router.push("/tenant/login"); return; }
     setTenant(tenantRow);
 

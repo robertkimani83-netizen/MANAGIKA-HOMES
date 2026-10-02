@@ -28,7 +28,7 @@ async function resolveTenant(request: Request) {
   tenantQuery = authedUser.email
     ? tenantQuery.eq("email", authedUser.email)
     : tenantQuery.in("phone_number", phoneVariants(authedUser.phone as string));
-  const { data: tenant } = await tenantQuery.maybeSingle();
+  const { data: tenant } = await tenantQuery.order("joined_at", { ascending: true }).limit(1).maybeSingle();
   return tenant?.id || null;
 }
 

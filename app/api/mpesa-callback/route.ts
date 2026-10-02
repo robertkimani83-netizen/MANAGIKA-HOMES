@@ -69,7 +69,7 @@ if (resultCode === 0) {
     // different tenant's record than intended.
     const phoneStr = String(phoneNumber).replace(/\D/g, "");
     const localFormat = phoneStr.startsWith("254") ? "0" + phoneStr.slice(3) : phoneStr;
-    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("id, unit_id, full_name, phone_number").or("phone_number.eq." + phoneStr + ",phone_number.eq." + localFormat).maybeSingle();
+    const { data: tenantRow } = await supabaseAdmin.from("tenants").select("id, unit_id, full_name, phone_number").or("phone_number.eq." + phoneStr + ",phone_number.eq." + localFormat).order("joined_at", { ascending: true }).limit(1).maybeSingle();
     tenantId = tenantRow?.id || null;
     unitId = tenantRow?.unit_id || null;
     tenantFullName = tenantRow?.full_name || null;
