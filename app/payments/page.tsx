@@ -914,6 +914,74 @@ return (
       </div>
     </div>
 
+    <div id="paid-this-month" className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
+      {(() => {
+        // Everyone who paid something DURING this month (by payment date),
+        // whichever month it was for - so a September balance paid in
+        // October shows here too, with "For" saying which month it covered.
+        const now = new Date();
+        const byTenant: Record<string, { id: string; name: string; unit: string; total: number; months: string[]; last: string; count: number }> = {};
+        for (const p of payments) {
+          if (!p.paid_at) continue;
+          const d = new Date(p.paid_at);
+          if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) continue;
+          const tid = p.invoices?.tenants?.id;
+          if (!tid) continue;
+          const row = byTenant[tid] || (byTenant[tid] = { id: tid, name: p.invoices?.tenants?.full_name || "—", unit: p.invoices?.units?.unit_number || "—", total: 0, months: [], last: p.paid_at, count: 0 });
+          row.total += Number(p.amount_paid) || 0;
+          row.count += 1;
+          const m = p.invoices?.billing_period || "";
+          if (m && !row.months.includes(m)) row.months.push(m);
+          if (p.paid_at > row.last) row.last = p.paid_at;
+        }
+        const rows = Object.values(byTenant).sort((a, b) => b.last.localeCompare(a.last));
+        const total = rows.reduce((sum, r) => sum + r.total, 0);
+        const statusFor = (tenantId: string) => tenantSummaries.find((t) => t.tenant.id === tenantId)?.status || "—";
+        return (
+          <>
+            <div className="border-b px-6 py-5">
+              <h3 className="text-xl font-semibold">Paid this month — {period}</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                {loading ? "Loading..." : rows.length === 0 ? "No payments received yet this month." : rows.length + " tenant" + (rows.length === 1 ? "" : "s") + " paid a total of KSh " + total.toLocaleString() + " this month."}
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Tenant</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Unit</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Amount paid</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">For</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Date</th>
+                    <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">{period} rent</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">Loading payments...</td></tr>
+                  ) : rows.length === 0 ? (
+                    <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-500">No payments received yet this month.</td></tr>
+                  ) : (
+                    rows.map((r) => (
+                      <tr key={r.id} className="border-t">
+                        <td className="whitespace-nowrap px-6 py-4 font-medium">{r.name}</td>
+                        <td className="whitespace-nowrap px-6 py-4">{r.unit}</td>
+                        <td className="whitespace-nowrap px-6 py-4 font-semibold text-green-700">KSh {r.total.toLocaleString()}{r.count > 1 && <span className="ml-1 text-xs font-normal text-slate-500">({r.count} payments)</span>}</td>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm">{r.months.join(" & ")}</td>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">{new Date(r.last).toLocaleDateString()}</td>
+                        <td className="whitespace-nowrap px-6 py-4">{statusFor(r.id) === "—" ? "—" : <span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + statusClasses(statusFor(r.id))}>{statusFor(r.id)}</span>}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        );
+      })()}
+    </div>
+
     <div id="not-paid" className="mb-8 overflow-hidden rounded-xl border bg-white shadow-sm">
       {(() => {
         const owing = reviewRows.filter((r) => r.status !== "paid").sort((a, b) => b.balance - a.balance);
