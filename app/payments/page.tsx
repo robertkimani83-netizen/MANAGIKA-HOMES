@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { recordRentPayment } from "@/lib/payment-allocation";
+import { recordRentPayment, editPayment, setRentDue } from "@/lib/payment-allocation";
 import { shiftPeriod, periodToIndex } from "@/lib/period";
 import { loadPeriodStatus, type PeriodStatusRow } from "@/lib/period-status";
 
@@ -98,6 +98,68 @@ const [reviewRows, setReviewRows] = useState<PeriodStatusRow[]>([]);
 const [reviewLoading, setReviewLoading] = useState(true);
 const [reviewError, setReviewError] = useState<string | null>(null);
 const recentPeriods = [0, -1, -2, -3, -4, -5].map((n) => shiftPeriod(period, n));
+
+// Edit windows. editingPayment = a row of Payment History being changed;
+// editingRent = a row of Rent Status whose amount due is being changed.
+const [editingPayment, setEditingPayment] = useState<{ payment: Payment; amount: string; method: string; reference: string; period: string } | null>(null);
+const [editingRent, setEditingRent] = useState<{ tenant: Tenant; rent: string } | null>(null);
+const [savingEdit, setSavingEdit] = useState(false);
+
+async function saveEditedPayment() {
+if (!editingPayment || !landlordId || savingEdit) return;
+const p = editingPayment.payment;
+const tenantRef = p.invoices?.tenants;
+if (!p.invoices?.id || !tenantRef) { alert("This payment isn't linked to a tenant, so it can't be edited here."); return; }
+const amt = Number(editingPayment.amount);
+if (!Number.isFinite(amt) || amt <= 0) { alert("Please enter a valid amount."); return; }
+const tenant = tenants.find((t) => t.id === tenantRef.id);
+setSavingEdit(true);
+try {
+  const result = await editPayment(supabase, {
+    paymentId: p.id,
+    currentInvoiceId: p.invoices.id,
+    tenantId: tenantRef.id,
+    unitId: tenant?.unit_id || null,
+    rent: Number(tenant?.units?.base_rent) || 0,
+    amount: amt,
+    method: editingPayment.method,
+    reference: editingPayment.reference.trim() || null,
+    period: editingPayment.period,
+  });
+  if (!result.ok) { alert("Could not save: " + result.error); return; }
+  if (result.warnings.length > 0) alert("Saved, but a status could not be updated: " + result.warnings.join("; "));
+  setEditingPayment(null);
+  loadPayments(landlordId);
+  loadUnpaidInvoices(landlordId);
+  loadReview(landlordId, reviewPeriod);
+} finally {
+  setSavingEdit(false);
+}
+}
+
+async function saveEditedRent() {
+if (!editingRent || !landlordId || savingEdit) return;
+const rent = Number(editingRent.rent);
+if (!Number.isFinite(rent) || rent < 0) { alert("Please enter a valid amount."); return; }
+const today = new Date();
+setSavingEdit(true);
+try {
+  const result = await setRentDue(supabase, {
+    tenantId: editingRent.tenant.id,
+    unitId: editingRent.tenant.unit_id,
+    period,
+    rent,
+    dueDate: today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0"),
+  });
+  if (!result.ok) { alert("Could not save: " + result.error); return; }
+  setEditingRent(null);
+  loadPayments(landlordId);
+  loadUnpaidInvoices(landlordId);
+  loadReview(landlordId, reviewPeriod);
+} finally {
+  setSavingEdit(false);
+}
+}
 
 // Lets the dashboard's "Record Payment" button land here with the form
 // already open (/payments?record=1).
@@ -457,12 +519,13 @@ const baseRent = Number(tenant.units?.base_rent) || 0;
 // This month's real invoice also carries the water charge (rent + water),
 // so use it when it is bigger than the plain rent - otherwise a tenant who
 // paid only the rent would show "Paid" while the invoice is still open.
-const thisMonthInvoiceTotal = Math.max(
-  0,
+// When this month's invoice exists, ITS total is what's due (it may have
+// been edited with the Edit button, or carry water). Otherwise unit rent.
+const thisMonthInvoiceTotals = [
   ...unpaidInvoices.filter((inv) => inv.tenant_id === tenant.id && inv.billing_period === period).map((inv) => Number(inv.total_due) || 0),
-  ...tenantPayments.map((p) => Number(p.invoices?.total_due) || 0)
-);
-const expected = Math.max(baseRent, thisMonthInvoiceTotal);
+  ...tenantPayments.map((p) => Number(p.invoices?.total_due) || 0),
+];
+const expected = thisMonthInvoiceTotals.length > 0 ? Math.max(...thisMonthInvoiceTotals) : baseRent;
 const paid = tenantPayments.reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
 
 // Any unpaid/partially-paid invoice from a period OTHER than the current
@@ -707,13 +770,14 @@ return (
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Balance</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Status</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Reminder</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600"></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="px-6 py-10 text-center text-slate-500">Loading payment information...</td></tr>
+              <tr><td colSpan={10} className="px-6 py-10 text-center text-slate-500">Loading payment information...</td></tr>
             ) : tenantSummaries.length === 0 ? (
-              <tr><td colSpan={9} className="px-6 py-10 text-center text-slate-500">No active tenants have been added yet.</td></tr>
+              <tr><td colSpan={10} className="px-6 py-10 text-center text-slate-500">No active tenants have been added yet.</td></tr>
             ) : (
               tenantSummaries.map((item) => (
                 <tr key={item.tenant.id} className="border-t">
@@ -736,6 +800,11 @@ return (
                         {sendingId === item.tenant.id ? "Sending..." : "Send Reminder"}
                       </button>
                     )}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4">
+                    <button onClick={() => setEditingRent({ tenant: item.tenant, rent: String(item.expected) })} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                      Edit
+                    </button>
                   </td>
                 </tr>
               ))
@@ -832,13 +901,14 @@ return (
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Reference</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Date</th>
               <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600">Status</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold text-slate-600"></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="px-6 py-10 text-center text-slate-500">Loading payments...</td></tr>
+              <tr><td colSpan={9} className="px-6 py-10 text-center text-slate-500">Loading payments...</td></tr>
             ) : payments.length === 0 ? (
-              <tr><td colSpan={8} className="px-6 py-10 text-center text-slate-500">No payments have been recorded yet.</td></tr>
+              <tr><td colSpan={9} className="px-6 py-10 text-center text-slate-500">No payments have been recorded yet.</td></tr>
             ) : (
               payments.map((payment) => (
                 <tr key={payment.id} className="border-t">
@@ -850,6 +920,14 @@ return (
                   <td className="whitespace-nowrap px-6 py-4">{payment.transaction_reference || "—"}</td>
                   <td className="whitespace-nowrap px-6 py-4">{new Date(payment.paid_at).toLocaleDateString()}</td>
                   <td className="whitespace-nowrap px-6 py-4"><span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + statusClasses(payment.invoices?.status === "paid" ? "Paid" : payment.invoices?.status === "partially_paid" ? "Partially Paid" : "Unpaid")}>{payment.invoices?.status ? payment.invoices.status.replace("_", " ") : "—"}</span></td>
+                  <td className="whitespace-nowrap px-6 py-4">
+                    <button
+                      onClick={() => setEditingPayment({ payment, amount: String(payment.amount_paid), method: payment.payment_method, reference: payment.transaction_reference || "", period: payment.invoices?.billing_period || period })}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Edit
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
@@ -858,6 +936,60 @@ return (
       </div>
     </div>
   </section>
+
+  {editingPayment && (() => {
+    const monthOptions = Array.from(new Set([editingPayment.payment.invoices?.billing_period || "", ...recentPeriods])).filter(Boolean);
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4" onClick={() => !savingEdit && setEditingPayment(null)}>
+        <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <h3 className="text-lg font-bold text-slate-900">Edit payment</h3>
+          <p className="mt-1 text-sm text-slate-500">{editingPayment.payment.invoices?.tenants?.full_name || "—"} · Unit {editingPayment.payment.invoices?.units?.unit_number || "—"} · paid {new Date(editingPayment.payment.paid_at).toLocaleDateString()}</p>
+          <div className="mt-5 grid gap-4">
+            <label className="block text-sm font-medium text-slate-700">Amount (KSh)
+              <input type="number" min="0" value={editingPayment.amount} onChange={(e) => setEditingPayment({ ...editingPayment, amount: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2.5 outline-none focus:border-amber-500" />
+            </label>
+            <label className="block text-sm font-medium text-slate-700">Counts for month
+              <select value={editingPayment.period} onChange={(e) => setEditingPayment({ ...editingPayment, period: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2.5 outline-none focus:border-amber-500">
+                {monthOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-slate-700">Method
+              <select value={editingPayment.method} onChange={(e) => setEditingPayment({ ...editingPayment, method: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2.5 outline-none focus:border-amber-500">
+                <option value="mpesa">M-Pesa</option>
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-slate-700">Reference
+              <input type="text" value={editingPayment.reference} onChange={(e) => setEditingPayment({ ...editingPayment, reference: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2.5 outline-none focus:border-amber-500" />
+            </label>
+          </div>
+          <p className="mt-4 text-xs text-slate-500">Saving does not send the tenant a message.</p>
+          <div className="mt-5 flex gap-3">
+            <button onClick={saveEditedPayment} disabled={savingEdit} className="rounded-lg bg-slate-900 px-5 py-2.5 font-medium text-white hover:bg-slate-800 disabled:opacity-60">{savingEdit ? "Saving..." : "Save"}</button>
+            <button onClick={() => setEditingPayment(null)} disabled={savingEdit} className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  })()}
+
+  {editingRent && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4" onClick={() => !savingEdit && setEditingRent(null)}>
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-slate-900">Edit amount due — {period}</h3>
+        <p className="mt-1 text-sm text-slate-500">{editingRent.tenant.full_name} · Unit {editingRent.tenant.units?.unit_number || "—"} · usual rent KSh {Number(editingRent.tenant.units?.base_rent || 0).toLocaleString()}</p>
+        <label className="mt-5 block text-sm font-medium text-slate-700">Total due for {period} (KSh)
+          <input type="number" min="0" value={editingRent.rent} onChange={(e) => setEditingRent({ ...editingRent, rent: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-4 py-2.5 outline-none focus:border-amber-500" />
+        </label>
+        <p className="mt-3 text-xs text-slate-500">Changes this month only, and includes any water charge already on the bill. To change the rent for every month, edit the unit instead. Saving does not send the tenant a message.</p>
+        <div className="mt-5 flex gap-3">
+          <button onClick={saveEditedRent} disabled={savingEdit} className="rounded-lg bg-slate-900 px-5 py-2.5 font-medium text-white hover:bg-slate-800 disabled:opacity-60">{savingEdit ? "Saving..." : "Save"}</button>
+          <button onClick={() => setEditingRent(null)} disabled={savingEdit} className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+        </div>
+      </div>
+    </div>
+  )}
 
   <footer className="mt-10 border-t bg-white">
     <div className="mx-auto max-w-7xl px-6 py-6 text-sm text-slate-500">© 2026 Managika Homes. Property management made simple.</div>
