@@ -67,6 +67,10 @@ export const metadata: Metadata = {
     description: SEO_DESCRIPTION,
     images: ["/icon-512-v2.png"],
   },
+  verification: {
+    // Bing Webmaster Tools site ownership.
+    other: { "msvalidate.01": "B1A57B2A96E16838694E6BA2E2CEF069" },
+  },
 };
 
 export const viewport: Viewport = {
