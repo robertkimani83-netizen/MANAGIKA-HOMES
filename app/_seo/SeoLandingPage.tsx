@@ -70,8 +70,8 @@ export default function SeoLandingPage({ path, eyebrow, title, intro, sections, 
         .sl-root a{ color:inherit; }
         .sl-nav{ background:#12213a; }
         .sl-nav-inner{ max-width:760px; margin:0 auto; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
-        .sl-brand{ text-decoration:none; font-family:"Fraunces", Georgia, serif; font-weight:700; color:#f7f2e7; letter-spacing:0.02em; }
-        .sl-nav-cta{ text-decoration:none; background:#c98a3e; color:#1a1206; font-weight:700; font-size:14px; padding:9px 16px; border-radius:8px; }
+        .sl-root .sl-brand{ text-decoration:none; font-family:"Fraunces", Georgia, serif; font-weight:700; color:#f7f2e7; letter-spacing:0.02em; }
+        .sl-root .sl-nav-cta{ text-decoration:none; background:#c98a3e; color:#1a1206; font-weight:700; font-size:14px; padding:9px 16px; border-radius:8px; }
         .sl-wrap{ max-width:760px; margin:0 auto; padding:40px 20px 72px; }
         .sl-eyebrow{ display:inline-block; font-size:12px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--gold); }
         .sl-root h1{ margin-top:10px; font-size:clamp(28px,5.5vw,42px); line-height:1.15; }
