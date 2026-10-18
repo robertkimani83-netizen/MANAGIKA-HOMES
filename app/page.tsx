@@ -653,6 +653,9 @@ export default function Home() {
 
         <footer className="lp-footer">
           <div className="lp-wrap">
+            <p style={{ margin: "0 0 10px" }}>
+              <a href="/rent-collection-app-kenya">Rent collection app Kenya</a> · <a href="/mpesa-rent-tracking">M-Pesa rent tracking</a> · <a href="/property-management-software-nairobi">Property management software Nairobi</a>
+            </p>
             © 2026 Managika Homes · <a href="/download-app" className="mh-hide-in-app">Download the app</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="mailto:support@managikahomes.co.ke">support@managikahomes.co.ke</a> · managikahomes.co.ke
           </div>
         </footer>
