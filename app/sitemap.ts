@@ -20,6 +20,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
       "/rent-collection-app-kenya",
       "/mpesa-rent-tracking",
       "/property-management-software-nairobi",
+      "/guides",
+      "/guides/track-mpesa-rent-payments",
     ].map((path) => ({
       url: `${baseUrl}${path}`,
       lastModified: new Date(),
