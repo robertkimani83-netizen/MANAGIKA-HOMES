@@ -16,6 +16,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 0.8,
     },
+    ...[
+      "/rent-collection-app-kenya",
+      "/mpesa-rent-tracking",
+      "/property-management-software-nairobi",
+    ].map((path) => ({
+      url: `${baseUrl}${path}`,
+      lastModified: new Date(),
+      changeFrequency: "monthly" as const,
+      priority: 0.8,
+    })),
     {
       url: `${baseUrl}/download-app`,
       lastModified: new Date(),
